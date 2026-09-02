@@ -1,0 +1,42 @@
+schema: spec-driven
+
+context: |
+  ## Project
+
+  Skwad manages multiple AI coding agents, each running in an embedded terminal,
+  on macOS. Agent-to-agent messaging over an MCP HTTP server, git worktree
+  integration, hook-driven activity status.
+
+  ## This repo is a rewrite
+
+  `skwad-rust` reimplements Skwad in Rust. The reference implementation is the
+  Swift/SwiftUI app under `Skwad/` + `SkwadTests/` (~25k LOC, ~120 files).
+  Specs in `openspec/specs/` describe INTENDED behavior of the Rust port,
+  derived from current Swift behavior with known limitations fixed — not a
+  literal transcription of the Swift code.
+
+  ## Stack mapping (Swift reference -> Rust target)
+
+  - SwiftUI + AppKit        -> gpui + gpui-components
+  - libghostty (C FFI)      -> keep libghostty via Rust FFI (Ghostty only)
+  - SwiftTerm fallback      -> dropped; Ghostty is the sole terminal engine
+  - Hummingbird HTTP        -> axum / hyper
+  - @AppStorage + Codable   -> serde + a config/dirs crate
+  - Combine / actors        -> tokio + channels + Arc<Mutex>
+  - Sparkle auto-update     -> cargo-dist / self-update crate
+  - XCTest                  -> cargo test + insta snapshots
+
+  ## Conventions
+
+  - Constants live in one module per crate.
+  - Functions take <= 5-6 args; group with structs/tuples past that.
+  - Format with `cargo +nightly fmt`.
+  - No panics in library code; `Result` + typed errors.
+  - User-facing text goes through localization lookup.
+
+rules:
+  proposal:
+    - State non-goals explicitly when scoping a baseline-documentation change.
+  specs:
+    - Phrase requirements as intended Rust behavior, implementation-neutral.
+    - Note where intended behavior diverges from the current Swift app.
