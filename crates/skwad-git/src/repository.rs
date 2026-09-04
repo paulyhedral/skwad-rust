@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::consts;
-use crate::error::Result;
+use crate::error::{GitError, Result};
 use crate::runner::Runner;
 use crate::stats::{parse_numstat, untracked_line_count, DiffStats};
 use crate::status::{parse_status, RepoStatus};
@@ -88,6 +88,40 @@ impl Repository {
     pub fn commit(&self, message: &str) -> Result<()> {
         let argv = [consts::COMMIT, &[message]].concat();
         self.runner.run(&argv).map(drop)
+    }
+
+    /// Current branch from `git branch --show-current`. `None` when HEAD is
+    /// detached (empty output).
+    pub fn current_branch(&self) -> Result<Option<String>> {
+        let branch = self.runner.run(consts::BRANCH_SHOW_CURRENT)?;
+        Ok((!branch.is_empty()).then_some(branch))
+    }
+
+    /// Whether the branch has commits its upstream lacks
+    /// (`git log @{u}.. --oneline`). `false` when there is no upstream.
+    pub fn has_unpushed(&self) -> Result<bool> {
+        match self.runner.run(consts::LOG_UNPUSHED) {
+            Ok(output) => Ok(!output.is_empty()),
+            Err(GitError::Command { .. }) => Ok(false),
+            Err(err) => Err(err),
+        }
+    }
+
+    /// `(ahead, behind)` relative to the upstream from
+    /// `git rev-list --left-right --count @{u}...HEAD`. `(0, 0)` when there is
+    /// no upstream.
+    pub fn ahead_behind(&self) -> Result<(u32, u32)> {
+        let output = match self.runner.run(consts::AHEAD_BEHIND) {
+            Ok(output) => output,
+            Err(GitError::Command { .. }) => return Ok((0, 0)),
+            Err(err) => return Err(err),
+        };
+
+        // left-right count prints "<behind>\t<ahead>": left = @{u}, right = HEAD.
+        let mut counts = output.split_whitespace();
+        let behind = counts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+        let ahead = counts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+        Ok((ahead, behind))
     }
 
     fn run_scoped(&self, base: &[&str], paths: &[&str]) -> Result<()> {

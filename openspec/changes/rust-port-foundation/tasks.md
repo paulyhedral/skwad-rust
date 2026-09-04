@@ -46,8 +46,8 @@
 
 ## 8. Branch and ahead/behind (spec: Branch and ahead/behind queries)
 
-- [ ] 8.1 Implement `current_branch() -> Option<String>` from `branch --show-current` (empty -> `None`); verify integration test on a temp repo and on a detached HEAD.
-- [ ] 8.2 Implement `has_unpushed()` from `log @{u}.. --oneline` and `ahead_behind() -> (u32,u32)` from `rev-list --left-right --count @{u}...HEAD`; verify test: no upstream -> `(0,0)` and `has_unpushed() == false` for the "No upstream" scenario.
+- [x] 8.1 `current_branch() -> Result<Option<String>>` from `branch --show-current` (empty -> `None`); verify `current_branch_reports_name_then_none_when_detached` (`main`, then `checkout --detach` -> `None`). Done.
+- [x] 8.2 `has_unpushed() -> Result<bool>` from `log @{u}.. --oneline` and `ahead_behind() -> Result<(u32,u32)>` from `rev-list --left-right --count @{u}...HEAD` (parsed as `behind\tahead`); no-upstream `GitError::Command` is caught -> `false` / `(0,0)`. Verify `no_upstream_...` and `ahead_of_upstream_is_counted_and_flagged` (`(1,0)`, unpushed). Done.
 
 ## 9. Build, lint, CI
 
