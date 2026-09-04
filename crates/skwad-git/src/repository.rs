@@ -58,4 +58,62 @@ impl Repository {
 
         Ok(stats)
     }
+
+    /// `git add <paths>`. Empty slice is a no-op (no process spawned).
+    pub fn stage(&self, paths: &[&str]) -> Result<()> {
+        self.run_scoped(consts::ADD, paths)
+    }
+
+    /// `git restore --staged <paths>`. Empty slice is a no-op.
+    pub fn unstage(&self, paths: &[&str]) -> Result<()> {
+        self.run_scoped(consts::RESTORE_STAGED, paths)
+    }
+
+    /// `git restore <paths>`. Empty slice is a no-op.
+    pub fn discard(&self, paths: &[&str]) -> Result<()> {
+        self.run_scoped(consts::RESTORE, paths)
+    }
+
+    /// `git add -A`.
+    pub fn stage_all(&self) -> Result<()> {
+        self.runner.run(consts::ADD_ALL).map(drop)
+    }
+
+    /// `git reset HEAD`.
+    pub fn unstage_all(&self) -> Result<()> {
+        self.runner.run(consts::UNSTAGE_ALL).map(drop)
+    }
+
+    /// `git commit -m <message>`.
+    pub fn commit(&self, message: &str) -> Result<()> {
+        let argv = [consts::COMMIT, &[message]].concat();
+        self.runner.run(&argv).map(drop)
+    }
+
+    fn run_scoped(&self, base: &[&str], paths: &[&str]) -> Result<()> {
+        if paths.is_empty() {
+            return Ok(());
+        }
+
+        let argv = [base, paths].concat();
+        self.runner.run(&argv).map(drop)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Repository;
+    use crate::runner::Runner;
+
+    /// A path-scoped op with no paths must not spawn git. `false` always exits
+    /// non-zero, so a spawn would surface as an error.
+    #[test]
+    fn empty_path_scoped_ops_do_not_spawn() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = Repository::with_runner(Runner::new(dir.path()).with_program("false"));
+
+        assert!(repo.stage(&[]).is_ok());
+        assert!(repo.unstage(&[]).is_ok());
+        assert!(repo.discard(&[]).is_ok());
+    }
 }

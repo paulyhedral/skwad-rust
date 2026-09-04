@@ -40,9 +40,9 @@
 
 ## 7. Staging, commit, discard (spec: Staging and commit operations)
 
-- [ ] 7.1 Implement `stage(paths)`, `unstage(paths)`, `stage_all()`, `unstage_all()`, `discard(paths)`, `commit(message)` as runner wrappers with the exact argv from the spec; verify integration test: stage a file then `status()` shows it staged, `commit` produces a new HEAD.
-- [ ] 7.2 Make path-scoped ops a no-op on an empty slice (no process spawned); verify test for "Discard is path-scoped" (spy/temp-repo shows no `git` invocation).
-- [ ] 7.3 Propagate runner errors unchanged; verify test for "Commit failure propagates" (commit with nothing staged returns the `GitError::Command`).
+- [x] 7.1 `stage`/`unstage`/`discard` (path-scoped), `stage_all`/`unstage_all`, `commit(message)` as runner wrappers with the spec's exact argv; verify `stage_then_commit_moves_head` (status staged as `Added`, HEAD changes, clean after) + `unstage_and_discard_round_trip`. Done.
+- [x] 7.2 Path-scoped ops return `Ok(())` on an empty slice without spawning; verify unit test with `with_program("false")` (a spawn would error) + `discard_with_empty_paths_is_a_no_op` (dirty file untouched). Done.
+- [x] 7.3 Runner errors propagate unchanged; verify `commit_failure_propagates` (nothing staged -> `GitError::Command`, `command == "commit -m nothing staged"`, `code != 0`). Done.
 
 ## 8. Branch and ahead/behind (spec: Branch and ahead/behind queries)
 
