@@ -12,10 +12,12 @@ pub mod diff;
 pub mod error;
 pub mod repository;
 pub mod runner;
+pub mod stats;
 pub mod status;
 
 pub use diff::{DiffLine, FileDiff, Hunk, LineKind};
 pub use error::{GitError, Result};
 pub use repository::Repository;
 pub use runner::Runner;
+pub use stats::{parse_numstat, DiffStats};
 pub use status::{ChangeType, FileEntry, RepoStatus};

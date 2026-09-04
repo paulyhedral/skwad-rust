@@ -35,8 +35,8 @@
 
 ## 6. Combined diff stats (spec: Combined diff stats)
 
-- [ ] 6.1 Implement `parse_numstat(&str) -> Vec<(u64,u64,PathBuf)>` treating `-` as binary (no line delta); verify unit test over a fixture with one text and one binary row.
-- [ ] 6.2 Implement `Repository::diff_stats()`: one `diff --numstat` + one `diff --staged --numstat`, then add untracked files by counting their lines (unreadable/binary untracked = 1 file, 0 delta); verify integration test for "Untracked file contributes lines" (12-line file -> +12 insertions, +1 file).
+- [x] 6.1 Implement `parse_numstat(&str) -> Vec<(u64,u64,PathBuf)>` (`-` -> 0, binary) + `untracked_line_count(io::Result<Vec<u8>>)` (None on NUL/unreadable); verify unit tests: text+binary rows, newline count + binary/err rejection. Done (`stats.rs`).
+- [x] 6.2 Implement `Repository::diff_stats() -> DiffStats`: `diff --numstat` + `diff --staged --numstat` summed, then each untracked file as +1 file with its line count as insertions (binary/unreadable -> +1 file, +0); verify "Untracked file contributes lines" (12-line -> 12 ins / 1 file) + staged+unstaged sum test. Done (`tests/stats.rs`).
 
 ## 7. Staging, commit, discard (spec: Staging and commit operations)
 
