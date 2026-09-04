@@ -21,17 +21,17 @@
 
 ## 4. Status parsing (spec: Repository status)
 
-- [ ] 4.1 Model `RepoStatus`, `FileEntry`, `ChangeType {Modified,Added,Deleted,Renamed,Copied,Untracked,Unmerged,Ignored}`, with staged + unstaged change types and retained original path for rename/copy; verify `cargo build -p skwad-git`.
-- [ ] 4.2 Implement `parse_status(&str) -> RepoStatus` for `porcelain=v2 --branch`: `# branch.head/upstream/ab` lines and `1`/`2`/`?`/`u` entries; verify `insta` snapshot over a fixture covering the "Mixed working tree" scenario (one each staged/modified/untracked, `is_clean == false`).
-- [ ] 4.3 Add derived groupings (`staged`, `modified`, `untracked`, `conflicted`, `is_clean`) and rename handling; verify snapshot test for the "Rename keeps original path" scenario (change type `Renamed`, original path recorded).
-- [ ] 4.4 Wire `Repository::status()` to run the command then `parse_status`; verify integration test against a temp repo with a staged, an unstaged, and an untracked file matches the scenario.
+- [x] 4.1 Model `RepoStatus`, `FileEntry`, `ChangeType {Modified,Added,Deleted,Renamed,Copied,Untracked,Unmerged,Ignored}`, staged + unstaged change types, `orig_path` for rename/copy; verify build. Done (`status.rs`; `T` type-changed maps to `Modified`).
+- [x] 4.2 Implement `parse_status(&str) -> RepoStatus` for `porcelain=v2 --branch`: `# branch.head/upstream/ab` + `1`/`2`/`u`/`?`/`!` entries via `splitn`; verify `insta` snapshot for "Mixed working tree" (1 staged / 1 modified / 1 untracked, `is_clean == false`). Done: `mixed_working_tree` snapshot.
+- [x] 4.3 Add `staged()`/`modified()`/`untracked()`/`conflicted()`/`is_clean()` and rename handling (`\t`-split new/orig); verify "Rename keeps original path" snapshot (`Renamed`, `orig_path` recorded). Done: `rename_keeps_original_path` snapshot.
+- [x] 4.4 Add `Repository::open`/`with_runner` + `status()`; verify integration tests against temp repos: staged+unstaged+untracked counts, `git mv` rename with original path, clean repo -> `is_clean()`. Done: 3 tests in `tests/status.rs`.
 
 ## 5. Diff parsing (spec: Diff parsing)
 
-- [ ] 5.1 Model `FileDiff { path, old_path, binary, hunks }` and `Hunk { header, old_start, old_count, new_start, new_count, lines }` with `LineKind {Context,Addition,Deletion,Header,HunkHeader}` and old/new line numbers; verify build.
-- [ ] 5.2 Implement `parse_diff(&str) -> Vec<FileDiff>` for `git diff --no-color` incl. `--staged` and single-path output; parse `@@ -a,b +c,d @@` with counts defaulting to 1; verify snapshot for "Hunk header without counts" (`@@ -10 +10 @@` -> counts 1).
-- [ ] 5.3 Handle binary file diffs (set `binary`, no hunks); verify snapshot for the "Binary file" scenario.
-- [ ] 5.4 Expose per-file additions/deletions derived by counting classified lines; verify unit test on a multi-hunk fixture.
+- [x] 5.1 Model `FileDiff { path, old_path, binary, hunks }`, `Hunk { header, old_start, old_count, new_start, new_count, lines }`, `DiffLine { kind, text, old_lineno, new_lineno }`, `LineKind {Context,Addition,Deletion,Header,HunkHeader}`; verify build. Done (`diff.rs`).
+- [x] 5.2 Implement `parse_diff(&str) -> Vec<FileDiff>` for `git diff --no-color` (also `--staged` / single-path shapes); `@@ -a,b +c,d @@` counts default to 1; running old/new line numbers per line. Verify "Hunk header without counts" snapshot (`@@ -10 +10 @@` -> counts 1). Done.
+- [x] 5.3 Detect `Binary files ... differ` -> `binary = true`, no hunks; verify "Binary file" snapshot. Done.
+- [x] 5.4 `FileDiff::additions()`/`deletions()` count classified hunk lines; public `classify(&str) -> LineKind`. Verify multi-hunk count test (3 add / 2 del) + `classify_covers_every_kind`. Done.
 
 ## 6. Combined diff stats (spec: Combined diff stats)
 

@@ -1,0 +1,38 @@
+---
+source: crates/skwad-git/src/diff.rs
+expression: files
+---
+[
+    FileDiff {
+        path: "file.txt",
+        old_path: None,
+        binary: false,
+        hunks: [
+            Hunk {
+                header: "@@ -10 +10 @@",
+                old_start: 10,
+                old_count: 1,
+                new_start: 10,
+                new_count: 1,
+                lines: [
+                    DiffLine {
+                        kind: Deletion,
+                        text: "old line",
+                        old_lineno: Some(
+                            10,
+                        ),
+                        new_lineno: None,
+                    },
+                    DiffLine {
+                        kind: Addition,
+                        text: "new line",
+                        old_lineno: None,
+                        new_lineno: Some(
+                            10,
+                        ),
+                    },
+                ],
+            },
+        ],
+    },
+]

@@ -1,0 +1,38 @@
+---
+source: crates/skwad-git/src/status.rs
+expression: status
+---
+RepoStatus {
+    head: Some(
+        "main",
+    ),
+    upstream: None,
+    ahead: 0,
+    behind: 0,
+    entries: [
+        FileEntry {
+            path: "staged.txt",
+            orig_path: None,
+            staged: Some(
+                Modified,
+            ),
+            unstaged: None,
+        },
+        FileEntry {
+            path: "unstaged.txt",
+            orig_path: None,
+            staged: None,
+            unstaged: Some(
+                Modified,
+            ),
+        },
+        FileEntry {
+            path: "untracked.txt",
+            orig_path: None,
+            staged: None,
+            unstaged: Some(
+                Untracked,
+            ),
+        },
+    ],
+}
