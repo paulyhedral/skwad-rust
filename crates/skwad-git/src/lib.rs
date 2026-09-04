@@ -4,8 +4,9 @@
 //!
 //! Contract: `openspec/specs/git-operations/spec.md`.
 //!
-//! Requires a `git` binary on `PATH`. Runtime-agnostic: no async runtime; wrap
-//! calls in `spawn_blocking` at an async boundary.
+//! Requires a `git` binary on `PATH` (>= 2.30; see `README.md`).
+//! Runtime-agnostic: no async runtime; wrap calls in `spawn_blocking` at an
+//! async boundary.
 
 pub mod consts;
 pub mod diff;

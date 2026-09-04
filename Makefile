@@ -1,4 +1,4 @@
-.PHONY: help build test clean archive export notarize dmg release install increment-build appcast get-version get-build set-version prerelease latest check-changelog
+.PHONY: help build test clean archive export notarize dmg release install increment-build appcast get-version get-build set-version prerelease latest check-changelog rust rust-fmt rust-lint rust-test rust-build
 
 # Load .env file if it exists
 -include .env
@@ -199,6 +199,21 @@ appcast:
 
 check-changelog:
 	@./scripts/check-changelog.sh
+
+# Rust workspace (the port). Additive to the Swift targets above.
+rust: rust-fmt rust-lint rust-test rust-build
+
+rust-fmt:
+	cargo +nightly fmt --check
+
+rust-lint:
+	cargo clippy --workspace --all-targets -- -D warnings
+
+rust-test:
+	cargo test --workspace
+
+rust-build:
+	cargo build --workspace
 
 release: increment-build notarize
 	@echo ""

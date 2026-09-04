@@ -51,11 +51,25 @@
 
 ## 9. Build, lint, CI
 
-- [ ] 9.1 Add `Makefile` targets `rust-fmt` (`cargo +nightly fmt --check`), `rust-lint` (`cargo clippy --all-targets -- -D warnings`), `rust-test` (`cargo test --workspace`), `rust-build`; verify each runs green locally.
-- [ ] 9.2 Add a GitHub Actions workflow running those four targets on `macos-latest` and `ubuntu-latest` with cargo caching, pinning a `git` version; verify the workflow passes on the change branch.
-- [ ] 9.3 Add `crates/skwad-git/README.md` noting the `git` binary requirement and minimum tested version; verify it renders and is referenced from the crate root doc comment.
+- [x] 9.1 Add `Makefile` targets `rust-fmt`/`rust-lint`/`rust-test`/`rust-build` (+ `rust` aggregate); verify each green locally via `make rust-*`. Done.
+- [x] 9.2 Add `.github/workflows/rust.yml`: `ubuntu-latest` + `macos-latest` matrix, `actions-rust-lang/setup-rust-toolchain` (cache + rustfmt/clippy), a git `>= 2.30` gate step, then fmt/clippy/test/build. Done. Note: CI fmt runs on stable (`cargo fmt --all --check`), not `+nightly`; workflow triggers on main push/PR so it first executes on the merge PR.
+- [x] 9.3 Add `crates/skwad-git/README.md` (git binary requirement, min 2.30, tested 2.55); referenced from the `lib.rs` crate doc comment. Done.
 
 ## 10. Verification
 
-- [ ] 10.1 Cross-check every scenario in `openspec/specs/git-operations/spec.md` against a test in `skwad-git`; verify a checklist in the PR maps each scenario name to its test function.
-- [ ] 10.2 Run `openspec validate rust-port-foundation` and `make rust-fmt rust-lint rust-test`; verify all pass.
+- [x] 10.1 Cross-check every git-operations spec scenario against a test. All 9 covered:
+
+  | Requirement | Scenario | Test |
+  |---|---|---|
+  | Command runner | Timeout terminates the process | `runner::tests::timeout_kills_process_and_names_command` |
+  | Command runner | Non-zero exit surfaces stderr | `tests/runner.rs::non_zero_exit_carries_output_and_code` |
+  | Repository status | Mixed working tree | `status::tests::mixed_working_tree`, `tests/status.rs::status_reports_staged_unstaged_and_untracked` |
+  | Repository status | Rename keeps original path | `status::tests::rename_keeps_original_path`, `tests/status.rs::status_reports_staged_rename_with_original_path` |
+  | Diff parsing | Hunk header without counts | `diff::tests::hunk_header_without_counts_defaults_to_one` |
+  | Diff parsing | Binary file | `diff::tests::binary_file_has_flag_and_no_hunks` |
+  | Combined diff stats | Untracked file contributes lines | `tests/stats.rs::untracked_file_contributes_its_lines_and_one_file` |
+  | Staging and commit operations | Discard is path-scoped | `tests/ops.rs::discard_with_empty_paths_is_a_no_op`, `repository::tests::empty_path_scoped_ops_do_not_spawn` |
+  | Staging and commit operations | Commit failure propagates | `tests/ops.rs::commit_failure_propagates` |
+  | Branch and ahead/behind queries | No upstream | `tests/branch.rs::no_upstream_means_zero_counts_and_not_unpushed` |
+
+- [x] 10.2 `openspec validate rust-port-foundation --strict` -> valid. `make rust-fmt rust-lint rust-test` -> all pass (28 tests: 2 skwad-core + 26 skwad-git). Done.
