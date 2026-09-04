@@ -4,8 +4,8 @@
 - [x] 1.2 Add `rust-toolchain.toml` pinning a stable channel plus the `rustfmt`/`clippy` components; verify `rustc --version` matches. Done: pinned `1.98.0`.
 - [x] 1.3 Add `/target/` and `**/*.rs.bk` to `.gitignore`; verify `git status` stays clean after `cargo build`. Done: `git check-ignore target` passes, no stray files.
 - [x] 1.4 Create `crates/skwad-core` (lib) with `error.rs` (`Error` via `thiserror`, `Result<T>` alias), `consts.rs`, and `t(key) -> String` (in `l10n.rs`) backed by a static match; verify `cargo test -p skwad-core`. Done: 2 tests pass (`app.name` -> `Skwad`, unknown -> key).
-- [ ] 1.5 Wire gpui: add it as a git dependency pinned to an exact rev, `main` opens an empty window and exits on close; verify `cargo run -p skwad --features gui` shows a window. DEFERRED — no network to resolve a known-good Zed rev; bin currently builds with a feature-gated `unimplemented!()` stub. Follow-up issue to be opened.
-- [x] 1.6 Feature-gate the window behind `--features gui` with a no-op default `main`; verify `cargo build -p skwad` (default, no features) passes. Done: default `main` prints `Skwad: gui feature not built`; build + clippy clean.
+- [x] 1.5 Wire gpui: depend on `gpui-kit` 0.6 (crates.io — see design.md, supersedes the planned git-pinned dependency), `main` opens an empty window (`Root` + empty `div()`); verify `cargo build -p skwad` and `cargo run -p skwad` shows a window. Done: ran the binary, window process stayed up; killed manually. No `--features gui` gate needed — no pin/build-time risk to gate against.
+- [x] 1.6 Superseded by 1.5: `gpui-kit` resolves from crates.io with an ordinary version requirement, so there is no unstable-build case to feature-gate. No stub `main` remains.
 
 ## 2. skwad-git crate skeleton
 

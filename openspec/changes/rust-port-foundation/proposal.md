@@ -54,9 +54,8 @@ None. `openspec/specs/git-operations/spec.md` is the unchanged contract for
 - New: `Cargo.toml` (workspace), `crates/skwad-git/`, `crates/skwad-core/`,
   `crates/skwad/`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/` if needed.
 - Modified: `Makefile`, `.github/workflows/`, `.gitignore` (add `target/`).
-- Dependencies added: gpui, tokio, axum, serde, serde_json, thiserror,
-  directories, insta (dev). Exact versions resolved at implementation time
-  against latest stable.
+- Dependencies added: gpui-kit (crates.io; vends `gpui`/`gpui-component`),
+  tokio, axum, serde, serde_json, thiserror, directories, insta (dev).
 - The Swift build (`Package.swift`, `Skwad.xcodeproj`, `make test`) is
   unaffected; Rust targets are additive.
 - `skip_specs: true` — scaffolding plus implementing an existing spec; no

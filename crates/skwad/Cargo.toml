@@ -9,9 +9,4 @@ default-run = "skwad"
 
 [dependencies]
 skwad-core = { path = "../skwad-core" }
-
-[features]
-# Enables the gpui window shell. The gpui dependency (git, pinned rev) is
-# added when the window is implemented; see change rust-port-foundation
-# task 1.5 follow-up.
-gui = []
+gpui-kit = "0.6"

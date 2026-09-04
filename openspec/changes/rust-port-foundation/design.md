@@ -80,11 +80,15 @@ strings in the GUI layer go through `skwad_core::t`.
 `skwad-git/src/consts.rs` holds the default 30s timeout and the argv arrays for
 each git subcommand. Matches the repo convention.
 
-### gpui via pinned git dependency
+### gpui via GPUI Kit (crates.io), not a pinned git dependency
 
-gpui is not published to crates.io; depend on it from the `zed-industries/zed`
-repo pinned to an exact rev. Isolated to the `skwad` crate so its API churn and
-build cost never touch `skwad-git` or CI's fast test path.
+Depend on [`gpui-kit`](https://github.com/longbridge/gpui-kit) (Apache-2.0,
+crates.io, currently 0.6.x), which vends a maintained `gpui` fork
+(`gpui-pre`) plus `gpui-component` as one versioned dependency. This replaces
+the originally-planned pinned git dependency on `zed-industries/zed`: normal
+semver instead of a hand-chosen commit, and `cargo update` moves it forward
+like any other dependency. Still isolated to the `skwad` crate so its build
+cost never touches `skwad-git` or CI's fast test path.
 
 ### CI / Makefile
 
@@ -95,11 +99,11 @@ existing Swift `make test` job is untouched.
 
 ## Risks / Trade-offs
 
-- [gpui git dep is unstable and slow to build] → Pin exact rev; confine to the
-  `skwad` crate; give CI a separate cached job so it never blocks `skwad-git`
-  feedback. If it won't build on CI within reason, land `skwad` behind a
-  feature-gated stub and track the fix as a follow-up (does not block the
-  git-operations deliverable).
+- [`gpui-kit`'s large default feature set (icon assets, optional tree-sitter
+  grammars) slows the `skwad` build] → Confine it to the `skwad` crate; CI's
+  fmt/clippy/test steps for `skwad-git` never pull it in. Trim default
+  features (`default-features = false`, opt back into `component`/`assets`)
+  if build time becomes a problem.
 - [`git` output drifts across versions] → Use `--porcelain=v2` (documented
   stable format) and `--no-color`; pin a `git` version in CI and note the
   minimum in the crate README.
@@ -119,7 +123,5 @@ depended on any of it.
 
 ## Open Questions
 
-- Exact gpui rev to pin — resolve at implementation against a known-good Zed
-  commit; does not affect crate boundaries or the task list.
 - Whether `skwad-core::t` later uses `fluent-rs` or a lighter table — deferred;
   the shim's call signature (`t("key") -> String`) is what callers depend on.

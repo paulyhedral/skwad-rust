@@ -1,18 +1,25 @@
-use skwad_core::t;
+use gpui_kit::component::*;
+use gpui_kit::*;
 
-fn main() {
-    #[cfg(feature = "gui")]
-    {
-        run_gui();
-    }
+struct Shell;
 
-    #[cfg(not(feature = "gui"))]
-    {
-        eprintln!("{}: gui feature not built", t("app.name"));
+impl Render for Shell {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div().size_full()
     }
 }
 
-#[cfg(feature = "gui")]
-fn run_gui() {
-    unimplemented!("gpui window shell: rust-port-foundation task 1.5 follow-up");
+fn main() {
+    gpui_kit::application().run(move |cx| {
+        gpui_kit::init(cx);
+
+        cx.spawn(async move |cx| {
+            cx.open_window(WindowOptions::default(), |window, cx| {
+                let view = cx.new(|_| Shell);
+                cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
+            })
+            .expect("failed to open window");
+        })
+        .detach();
+    });
 }
