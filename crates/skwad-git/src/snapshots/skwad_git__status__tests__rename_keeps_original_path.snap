@@ -1,0 +1,24 @@
+---
+source: crates/skwad-git/src/status.rs
+expression: status
+---
+RepoStatus {
+    head: Some(
+        "main",
+    ),
+    upstream: None,
+    ahead: 0,
+    behind: 0,
+    entries: [
+        FileEntry {
+            path: "new_name.txt",
+            orig_path: Some(
+                "old_name.txt",
+            ),
+            staged: Some(
+                Renamed,
+            ),
+            unstaged: None,
+        },
+    ],
+}

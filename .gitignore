@@ -24,6 +24,10 @@ Package.resolved
 # Local settings
 .claude/settings.local.json
 
+# Rust
+/target/
+**/*.rs.bk
+
 # Build artifacts
 build/
 Vendor/libghostty/lib/libghostty.a

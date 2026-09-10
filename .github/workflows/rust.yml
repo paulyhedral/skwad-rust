@@ -1,0 +1,46 @@
+name: Rust
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  workspace:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt, clippy
+          cache-key: ${{ matrix.os }}
+
+      - name: Git version (needs >= 2.30 for porcelain v2 tests)
+        run: |
+          git --version
+          v=$(git --version | awk '{print $3}')
+          low=$(printf '2.30.0\n%s\n' "$v" | sort -V | head -1)
+          if [ "$low" != "2.30.0" ]; then
+            echo "git $v is older than the 2.30 floor"; exit 1
+          fi
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Build
+        run: cargo build --workspace

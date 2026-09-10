@@ -1,0 +1,12 @@
+---
+source: crates/skwad-git/src/diff.rs
+expression: files
+---
+[
+    FileDiff {
+        path: "logo.png",
+        old_path: None,
+        binary: true,
+        hunks: [],
+    },
+]
