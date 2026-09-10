@@ -117,7 +117,7 @@ jobs:
 
       - name: Create GitHub Release (prerelease)
         if: ${{ inputs.release_type == 'prerelease' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.version.outputs.version }}.${{ steps.version.outputs.build }}
           name: Skwad v${{ steps.version.outputs.version }} (build ${{ steps.version.outputs.build }})
@@ -130,7 +130,7 @@ jobs:
 
       - name: Create GitHub Release (latest)
         if: ${{ inputs.release_type == 'latest' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.version.outputs.version }}.${{ steps.version.outputs.build }}
           name: Skwad v${{ steps.version.outputs.version }} (build ${{ steps.version.outputs.build }})
