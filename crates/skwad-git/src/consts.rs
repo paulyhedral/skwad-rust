@@ -19,6 +19,8 @@ pub const UNSTAGE_ALL: &[&str] = &["reset", "HEAD"];
 pub const RESTORE: &[&str] = &["restore"];
 pub const COMMIT: &[&str] = &["commit", "-m"];
 
+pub const WORKTREE_ADD: &[&str] = &["worktree", "add", "-b"];
+
 pub const BRANCH_SHOW_CURRENT: &[&str] = &["branch", "--show-current"];
 pub const LOG_UNPUSHED: &[&str] = &["log", "@{u}..", "--oneline"];
 pub const AHEAD_BEHIND: &[&str] = &["rev-list", "--left-right", "--count", "@{u}...HEAD"];
