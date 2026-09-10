@@ -1,0 +1,69 @@
+{
+  "appearanceMode": "dark",
+  "restoreLayoutOnLaunch": false,
+  "keepInMenuBar": true,
+  "mcpServerEnabled": false,
+  "mcpServerPort": 9123,
+  "sourceBaseFolder": "~/code",
+  "sourceBaseFolderInitialized": true,
+  "desktopNotificationsEnabled": false,
+  "markdownFontSize": 16,
+  "mermaidTheme": "forest",
+  "mermaidScale": 1.5,
+  "agentCommands": { "custom1": "my-agent" },
+  "agentOptions": { "claude": "--verbose" },
+  "terminalFontName": "Menlo",
+  "terminalFontSize": 12.5,
+  "savedAgents": [
+    {
+      "id": "b2000001-0000-0000-0000-000000000001",
+      "name": "Builder",
+      "avatar": "🤖",
+      "folder": "/repo/app",
+      "agentType": "claude",
+      "createdBy": "b2000001-0000-0000-0000-0000000000ff",
+      "isCompanion": true,
+      "shellCommand": "zsh -l",
+      "personaId": "a1000001-0000-0000-0000-000000000001"
+    }
+  ],
+  "savedWorkspaces": [
+    {
+      "id": "c3000001-0000-0000-0000-000000000001",
+      "name": "Main",
+      "colorHex": "#1B4FB2",
+      "agentIds": ["b2000001-0000-0000-0000-000000000001"],
+      "layoutMode": "splitVertical",
+      "activeAgentIds": ["b2000001-0000-0000-0000-000000000001"],
+      "focusedPaneIndex": 0,
+      "splitRatio": 0.5,
+      "splitRatioSecondary": 0.4,
+      "showDashboard": false,
+      "isDetached": true
+    }
+  ],
+  "personas": [
+    {
+      "id": "a1000001-0000-0000-0000-000000000001",
+      "name": "Kent Beck",
+      "instructions": "Write the simplest thing.",
+      "type": "system",
+      "state": "enabled"
+    },
+    {
+      "id": "d4000001-0000-0000-0000-000000000009",
+      "name": "Legacy",
+      "instructions": "No type or state here."
+    }
+  ],
+  "benchAgents": [
+    {
+      "id": "e5000001-0000-0000-0000-000000000001",
+      "name": "Template",
+      "avatar": "🤖",
+      "folder": "/repo/tpl",
+      "agentType": "codex"
+    }
+  ],
+  "recentRepos": ["app", "lib", "cli"]
+}

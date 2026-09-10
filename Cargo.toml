@@ -14,3 +14,7 @@ tempfile = "3.27"
 insta = "1.43"
 notify = "8.2"
 tokio = { version = "1.53", features = ["rt-multi-thread", "sync", "time", "macros"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+directories = "6.0.0"
+uuid = { version = "1.26.1", features = ["v4", "serde"] }
