@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use skwad_git::{is_working_tree, GitError, Repository, Runner};
+use skwad_git::{GitError, Repository, Runner, is_working_tree};
 
 fn init_repo(dir: &Path) {
     let run = |args: &[&str]| {

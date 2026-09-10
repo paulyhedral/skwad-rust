@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use crate::consts;
 use crate::error::{GitError, Result};
 use crate::runner::Runner;
-use crate::stats::{parse_numstat, untracked_line_count, DiffStats};
-use crate::status::{parse_status, RepoStatus};
+use crate::stats::{DiffStats, parse_numstat, untracked_line_count};
+use crate::status::{RepoStatus, parse_status};
 
 /// A git repository addressed by working directory. All operations run through
 /// a [`Runner`], so they share its timeout and working directory.

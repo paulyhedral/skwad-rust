@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::consts::{GITDIR_PREFIX, GIT_DIR, HEAD, HEAD_REF_PREFIX, WORKTREES_MARKER};
+use crate::consts::{GIT_DIR, GITDIR_PREFIX, HEAD, HEAD_REF_PREFIX, WORKTREES_MARKER};
 
 /// A repository discovered under the source folder, with its primary clone and
 /// any linked worktrees.

@@ -26,7 +26,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::consts::{
-    APPEARANCE_MODE_DEFAULT, APP_NAME, DEFAULT_PERSONAS, MARKDOWN_FONT_SIZE_DEFAULT,
+    APP_NAME, APPEARANCE_MODE_DEFAULT, DEFAULT_PERSONAS, MARKDOWN_FONT_SIZE_DEFAULT,
     MCP_PORT_DEFAULT, MERMAID_THEME_DEFAULT, ORG_NAME, ORG_QUALIFIER, RECENT_REPOS_MAX,
     SETTINGS_FILE, SOURCE_FOLDER_CANDIDATES, TERMINAL_FONT_DEFAULT, TERMINAL_FONT_SIZE_DEFAULT,
 };
@@ -263,10 +263,10 @@ fn default_personas() -> Vec<Persona> {
 }
 
 fn expand_tilde(path: &str) -> PathBuf {
-    if let Some(rest) = path.strip_prefix("~/") {
-        if let Some(base) = BaseDirs::new() {
-            return base.home_dir().join(rest);
-        }
+    if let Some(rest) = path.strip_prefix("~/")
+        && let Some(base) = BaseDirs::new()
+    {
+        return base.home_dir().join(rest);
     }
     PathBuf::from(path)
 }

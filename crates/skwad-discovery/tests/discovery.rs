@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
-use skwad_discovery::{scan, Discovery};
+use skwad_discovery::{Discovery, scan};
 use tokio::time::timeout;
 
 fn mk_repo(base: &Path, name: &str) {
