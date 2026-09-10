@@ -14,16 +14,19 @@ change and tied to a spec contract.
 
 ## Workflow
 
-1. Branch from `main`. Name it after the change (e.g. `git-operations-port`).
+git-flow. `develop` is the integration branch; `main` is release-only.
+
+1. Branch from `develop`: `feature/<change>` (e.g. `feature/git-operations-port`).
+   Release and hotfix branches (`release/x.y.z`, `hotfix/x.y.z`) PR to `main`.
 2. For a subsystem port, work through its OpenSpec change under `openspec/changes/`.
    The spec files in `openspec/specs/` are the contract - crate module docs link
    back to them.
 3. Keep commits scoped and conventional (see below).
-4. Open a PR against `main`. CI (`.github/workflows/rust.yml`) must pass:
-   `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `cargo build`
-   on Linux and macOS.
-5. PRs merge with a merge commit so Conventional Commit prefixes survive in
-   history.
+4. Open a PR against `develop` (release/hotfix against `main`). CI
+   (`.github/workflows/rust.yml`) must pass: `cargo fmt --check`,
+   `cargo clippy -D warnings`, `cargo test`, `cargo build` on Linux and macOS.
+5. PRs merge with a merge commit or rebase - never squash - so Conventional
+   Commit prefixes survive in history.
 
 ## Running checks locally
 

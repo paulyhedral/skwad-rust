@@ -69,12 +69,16 @@ squash.
 
 ## Branches and Workflow
 
-1. Branch from `main`, named for the change (`git-operations-port`).
+git-flow. `develop` is the integration branch; `main` is release-only.
+
+1. Branch from `develop`: `feature/<change>` (or `release/x.y.z`, `hotfix/x.y.z`).
 2. Implement against the OpenSpec change / spec contract.
-3. Open a PR to `main`. Branch protection requires the Rust CI matrix
-   (`workspace (ubuntu-latest)` and `workspace (macos-latest)` from
-   `.github/workflows/rust.yml`) to pass.
-4. `dependabot` opens weekly grouped PRs for `cargo` and `github-actions`.
+3. Open a PR to `develop` (`release/*` and `hotfix/*` PR to `main`). Rulesets on
+   both branches require the Rust CI matrix (`workspace (ubuntu-latest)` and
+   `workspace (macos-latest)` from `.github/workflows/rust.yml`) to pass, and a
+   PR to merge. Merge with a merge commit or rebase, never squash.
+4. `dependabot` opens weekly grouped PRs against `develop` for `cargo` and
+   `github-actions`.
 
 ## Running Checks Locally
 
