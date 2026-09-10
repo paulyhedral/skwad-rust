@@ -2,9 +2,11 @@
 
 Runs `git` and parses its output into structured data for the Skwad Rust port:
 command runner with timeout, porcelain v2 status, unified-diff parsing, numstat
-stats, staging/commit operations, and branch / ahead-behind queries.
+stats, staging/commit operations, branch / ahead-behind queries, and worktree
+detection / creation.
 
-Behavior contract: `openspec/specs/git-operations/spec.md`.
+Behavior contracts: `openspec/specs/git-operations/spec.md`,
+`openspec/specs/worktree-management/spec.md`.
 
 ## Requirements
 

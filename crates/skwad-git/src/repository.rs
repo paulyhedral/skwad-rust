@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::consts;
 use crate::error::{GitError, Result};
@@ -122,6 +122,18 @@ impl Repository {
         let behind = counts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
         let ahead = counts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
         Ok((ahead, behind))
+    }
+
+    /// Create a worktree at `destination` on a new branch `branch`, via
+    /// `git worktree add -b <branch> <destination>` run from this repository.
+    /// The runner's error propagates unchanged, so an existing branch name
+    /// surfaces as [`GitError::Command`] and no worktree is created.
+    pub fn create_worktree(&self, branch: &str, destination: &Path) -> Result<()> {
+        let destination = destination.to_str().ok_or_else(|| {
+            GitError::Parse("worktree destination path is not valid UTF-8".to_owned())
+        })?;
+        let argv = [consts::WORKTREE_ADD, &[branch, destination]].concat();
+        self.runner.run(&argv).map(drop)
     }
 
     fn run_scoped(&self, base: &[&str], paths: &[&str]) -> Result<()> {
