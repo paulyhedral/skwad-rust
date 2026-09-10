@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Repo scaffolding: dependabot, community docs (CONTRIBUTING, SECURITY, CODE_OF_CONDUCT), `docs/adr/` template and index
+- Branch protection on `main` requiring the Rust workspace CI matrix
+
+### Changed
+- `AGENTS.md` rewritten around the Rust port; `CLAUDE.md` is now a symlink to it
+
+
 ## [1.9.0] - 2026-04-03
 
 ### Added
