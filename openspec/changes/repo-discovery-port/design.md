@@ -72,6 +72,11 @@ Discovery::new() -> (Discovery, watch::Receiver<Vec<RepoInfo>>)
 Discovery::set_source_folder(&self, path: Option<PathBuf>)
 ```
 
+The base folder is `canonicalize`d before it is watched, scanned, and passed to
+the task: on macOS FSEvents reports symlink-resolved absolute paths, so the
+relevance check's `strip_prefix(base)` only lines up when `base` is resolved the
+same way.
+
 `set_source_folder` runs on the caller's runtime. It:
 
 1. Aborts the current watcher task (drops the `notify` watcher and the debounce
