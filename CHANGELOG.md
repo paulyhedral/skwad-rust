@@ -13,6 +13,11 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - `AGENTS.md` rewritten around the Rust port; `CLAUDE.md` is now a symlink to it
 
+### Fixed
+- `workspace (ubuntu-latest)` CI: install the Linux system packages `gpui-component` needs to build (fontconfig, wayland, webkit2gtk, xkbcommon, x11-xcb, ssl, zstd, vulkan) - the job failed on every run without them
+- `skwad-discovery`: switching the source folder could race a not-yet-torn-down watcher into publishing a stale rescan from the previous folder
+- `skwad-discovery`: on Linux, a rescan's own directory read could re-trigger its own debounce indefinitely (inotify watches directory opens; the watch never went quiet)
+
 
 ## [1.9.0] - 2026-04-03
 
