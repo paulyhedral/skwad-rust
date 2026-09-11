@@ -13,10 +13,13 @@ thiserror = "2.0.20"
 tempfile = "3.27"
 insta = "1.43"
 notify = "8.2"
-tokio = { version = "1.53", features = ["rt-multi-thread", "sync", "time", "macros"] }
+tokio = { version = "1.53", features = ["rt-multi-thread", "sync", "time", "macros", "net"] }
+tokio-stream = "0.1.19"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 directories = "6.0.0"
 uuid = { version = "1.26.1", features = ["v4", "serde"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 time = { version = "0.3.55", features = ["parsing", "formatting", "macros"] }
+axum = "0.8.9"
+async-trait = "0.1.92"
