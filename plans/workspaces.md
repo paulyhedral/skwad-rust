@@ -2,24 +2,26 @@
 
 ## Overview
 
-Add workspace support to Skwad, allowing users to organize agents into separate workspaces. Each workspace has its own set of agents, but all agents across all workspaces remain running (terminals kept alive).
+Add workspace support to Skwad, allowing users to organize agents into separate workspaces. Each workspace has its own set of agents. Agents are loaded when the workspace is opened.
 
 ## Requirements
 
 ### Core Requirements (from user)
-- Vertical workspace bar on the left side of the sidebar
+- Workspace is a separate window that contains a set of agents
+- Workspaces are managed in a separate Workspace Manager window
 - Each workspace has its own set of agents
-- All agents across all workspaces kept alive (not just current workspace)
+- Agents are kept alive only when a workspace is open
 - Cmd+N adds new workspace (prompts for name)
-- Workspace displays as avatar circle with initial(s)
+- Workspace displays as avatar circle with initial(s) or can be assigned an image
 - Right-click context menu: Edit name, Close workspace (closes all agents)
 - Workspaces and their agent assignments saved/restored on launch
+- Open workspaces are restored on launch
 
 ### Design Decisions (confirmed)
 
-1. **Default workspace**: When last workspace is closed, app shows empty content view. When user creates first agent, auto-create "Skwad" default workspace.
+1. **Default workspace**: When last workspace is closed, app shows workspace manager.
 
-2. **Agent assignment**: New agents added to current workspace. No drag-drop between workspaces (future enhancement).
+2. **Agent assignment**: New agents added to current workspace. Drag-drop between workspaces.
 
 3. **Keyboard shortcuts**:
    - Cmd+N = New workspace
