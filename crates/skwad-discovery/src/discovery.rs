@@ -15,7 +15,18 @@ use crate::scan::{RepoInfo, scan};
 /// coalesces bursts. Results are published on a [`watch`] channel.
 pub struct Discovery {
     tx: watch::Sender<Vec<RepoInfo>>,
-    watcher: Mutex<Option<JoinHandle<()>>>,
+    active: Mutex<Option<ActiveWatch>>,
+}
+
+/// The running watch for the current source folder. `watcher` is held here
+/// rather than inside the spawned task so replacing it is a plain, synchronous
+/// drop: the OS-level watch closes before this function returns, instead of
+/// waiting on `JoinHandle::abort`, which only requests cancellation and gives
+/// no guarantee the old watch is gone before the caller's next filesystem
+/// write - a real, not just CI-timing, "stale event after switch" race.
+struct ActiveWatch {
+    watcher: RecommendedWatcher,
+    task: JoinHandle<()>,
 }
 
 impl Discovery {
@@ -25,7 +36,7 @@ impl Discovery {
         let (tx, rx) = watch::channel(Vec::new());
         let discovery = Self {
             tx,
-            watcher: Mutex::new(None),
+            active: Mutex::new(None),
         };
         (discovery, rx)
     }
@@ -35,8 +46,9 @@ impl Discovery {
     /// starts no watch. Otherwise the folder is scanned once, the result
     /// published, and a debounced watch started.
     pub fn set_source_folder(&self, path: Option<PathBuf>) -> Result<()> {
-        if let Some(handle) = self.watcher.lock().unwrap().take() {
-            handle.abort();
+        if let Some(old) = self.active.lock().unwrap().take() {
+            old.task.abort();
+            drop(old.watcher);
         }
 
         let base = match path {
@@ -58,14 +70,13 @@ impl Discovery {
         })?;
         watcher.watch(&base, RecursiveMode::NonRecursive)?;
 
-        let handle = tokio::spawn(watch_loop(watcher, evt_rx, base, self.tx.clone()));
-        *self.watcher.lock().unwrap() = Some(handle);
+        let task = tokio::spawn(watch_loop(evt_rx, base, self.tx.clone()));
+        *self.active.lock().unwrap() = Some(ActiveWatch { watcher, task });
         Ok(())
     }
 }
 
 async fn watch_loop(
-    _watcher: RecommendedWatcher,
     mut events: mpsc::UnboundedReceiver<notify::Event>,
     base: PathBuf,
     tx: watch::Sender<Vec<RepoInfo>>,
