@@ -28,11 +28,24 @@ async fn no_update_within(rx: &mut tokio::sync::watch::Receiver<Vec<RepoInfo>>, 
 /// individually harmless but each restart the debounce clock). Asserting a
 /// fixed rescan count is what made these tests flaky; asserting eventual
 /// convergence to the right content is what the debounce actually promises.
+///
+/// Bounded by an overall deadline, not just the per-gap `quiet` window: a
+/// watch that (for whatever reason - a feedback loop, a noisy filesystem)
+/// never actually goes quiet for `quiet` must still fail the test in seconds,
+/// not hang the process. `unwrap_or` on the recv is a correctness assertion,
+/// not a real "channel closed" no-op: nothing here drops the sender early.
 async fn settle(
     rx: &mut tokio::sync::watch::Receiver<Vec<RepoInfo>>,
     quiet: Duration,
 ) -> Vec<RepoInfo> {
-    while timeout(quiet, rx.changed()).await.is_ok() {}
+    let overall = timeout(Duration::from_secs(10), async {
+        while timeout(quiet, rx.changed()).await.is_ok() {}
+    })
+    .await;
+    assert!(
+        overall.is_ok(),
+        "settle() did not go quiet within 10s - updates kept arriving faster than `quiet` apart"
+    );
     rx.borrow_and_update().clone()
 }
 
