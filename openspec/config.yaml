@@ -17,7 +17,7 @@ context: |
 
   ## Stack mapping (Swift reference -> Rust target)
 
-  - SwiftUI + AppKit        -> gpui + gpui-components
+  - SwiftUI + AppKit        -> gpui-kit
   - libghostty (C FFI)      -> keep libghostty via Rust FFI (Ghostty only)
   - SwiftTerm fallback      -> dropped; Ghostty is the sole terminal engine
   - Hummingbird HTTP        -> axum / hyper
