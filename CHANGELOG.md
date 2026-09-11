@@ -7,6 +7,8 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Repo scaffolding: dependabot, community docs (CONTRIBUTING, SECURITY, CODE_OF_CONDUCT), `docs/adr/` template and index
 - Branch protection on `main` requiring the Rust workspace CI matrix
+- `docs/adr/0001-git-flow.md` recording the git-flow adoption
+- `prepare-release.yml` / `tag-release.yml` / `release.yml` workflows automating the git-flow release cycle
 
 ### Changed
 - `AGENTS.md` rewritten around the Rust port; `CLAUDE.md` is now a symlink to it

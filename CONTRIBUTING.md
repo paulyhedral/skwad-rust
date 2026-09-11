@@ -65,6 +65,26 @@ copy `docs/adr/0000-template.md`. Index: `docs/adr/README.md`.
 User-facing changes go under `## [Unreleased]` in `CHANGELOG.md` in the
 Keep a Changelog format (Added / Changed / Fixed / Removed).
 
+## Releases
+
+Three workflows automate the git-flow release cycle for the Rust workspace,
+calling the reusable `sweetrpg/github-actions` `rust-*-release` workflows:
+
+1. **Prepare Release** (`prepare-release.yml`, manual dispatch) - bumps every
+   crate's version with `cargo-edit`, regenerates `CHANGELOG.md` with
+   `git-cliff`, and opens a `release/x.y.z` PR against `main`.
+2. **Tag Release** (`tag-release.yml`) - fires when a `release/*` (or
+   `hotfix/*`) PR merges into `main`; tags the merge commit `vX.Y.Z`.
+3. **Release** (`release.yml`) - fires on that tag push; runs the workspace
+   test suite, cuts a GitHub Release with `git-cliff`-generated notes, and
+   merges `main` back into `develop` so the two branches stay in sync.
+
+These need repo secrets `SRPG_CI_APP_ID` / `SRPG_CI_PRIVATE_KEY` (a GitHub App
+with `contents: write` + `pull-requests: write`, installed on this repo) before
+Prepare/Tag Release can run - they mint a bot token so the release commit and
+the develop merge-back satisfy branch protection. No crate here publishes to
+crates.io (`publish-to-crates-io: false`).
+
 ## License
 
 By contributing you agree your work is licensed under AGPL-3.0-only, matching the

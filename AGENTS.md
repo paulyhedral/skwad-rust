@@ -98,6 +98,14 @@ The Swift app has its own targets in the same `Makefile` (`make build`,
 `make test`, `make notarize`) and its own CI (`tests.yml`, `build.yml`); those
 are unrelated to port work.
 
+## Releases
+
+`prepare-release.yml` / `tag-release.yml` / `release.yml` automate the
+git-flow release cycle (version bump + changelog via `cargo-edit`/`git-cliff`,
+tag `main`, cut a GitHub Release, merge `main` back into `develop`), calling
+the reusable `sweetrpg/github-actions` `rust-*-release` workflows. Details and
+required secrets: `CONTRIBUTING.md` - Releases. Rationale: `docs/adr/0001-git-flow.md`.
+
 ## Architecture Decisions
 
 Non-trivial design choices are recorded as ADRs under `docs/adr/`. Index and
