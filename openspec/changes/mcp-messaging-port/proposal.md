@@ -17,17 +17,17 @@ that made `mcp-server` land before `mcp-tools`.
   - `MessageStore`: `add`, `unread_for(agent_id)`, `mark_read(agent_id)`,
     `has_unread(agent_id)`, `latest_unread_id(agent_id)`, and `cleanup()`
     (caps read messages at 100, oldest-first, never touches unread).
-  - `send(sender, recipient, content, agents: &[Agent]) -> SendResult`
-    applying, in order: sender must resolve and be registered ("Sender not
-    registered"), recipient must resolve in the sender's workspace
-    ("Recipient not found"), recipient must not be a shell agent ("Cannot
-    send messages to shell agents"), companion-ownership routing ("Only the
-    owner can send messages to a companion agent" / "Companion agents can
-    only send messages to their owner").
-  - `broadcast(sender, content, agents: &[Agent]) -> usize` fanning out to
-    every eligible recipient in the sender's workspace (excludes sender,
-    unregistered, shell, and companion-rule violators), returning the count
-    created.
+  - `send(sender: &Agent, workspace_members: &[Agent], recipient_id, content)
+    -> Result<Uuid, SendError>` applying, in order: sender must be registered
+    (`SendError::SenderNotRegistered`), recipient must resolve within
+    `workspace_members` (`RecipientNotFound`), recipient must not be a shell
+    agent (`ShellRecipient`), companion-ownership routing
+    (`NotCompanionOwner` / `CompanionNotOwner`) - `SendError`'s `Display`
+    produces the spec's exact rejection text.
+  - `broadcast(sender: &Agent, workspace_members: &[Agent], content) ->
+    usize` fanning out to every eligible recipient in `workspace_members`
+    (excludes sender, unregistered, shell, and companion-rule violators),
+    returning the count created.
   - `check(agent_id, mark_as_read: bool) -> Vec<Message>` for
     `check-messages`, non-destructive when `mark_as_read` is false.
   - A `DeliveryNotifier` trait (`notify(agent_id: Uuid, message_id: Uuid)`)

@@ -1,0 +1,13 @@
+[package]
+name = "skwad-messaging"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+uuid.workspace = true
+skwad-agents = { path = "../skwad-agents" }
