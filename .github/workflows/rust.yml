@@ -13,6 +13,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -49,8 +50,19 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Test
-        run: cargo test --workspace
+      # Split per-crate (rather than one `cargo test --workspace`) so a hang or
+      # failure names the crate directly in the job summary instead of a
+      # single opaque "Test" step.
+      - name: Test (skwad-core)
+        run: cargo test -p skwad-core
+      - name: Test (skwad-git)
+        run: cargo test -p skwad-git
+      - name: Test (skwad-discovery)
+        run: cargo test -p skwad-discovery
+      - name: Test (skwad-history)
+        run: cargo test -p skwad-history
+      - name: Test (skwad)
+        run: cargo test -p skwad
 
       - name: Build
         run: cargo build --workspace
