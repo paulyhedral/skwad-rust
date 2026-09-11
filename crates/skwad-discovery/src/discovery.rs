@@ -76,6 +76,13 @@ impl Discovery {
     }
 }
 
+/// Debounces relevant filesystem events into rescans. `EventKind::Access` is
+/// filtered out before path-relevance is even checked: Linux's inotify
+/// backend watches `WatchMask::OPEN` by default, so every rescan's own
+/// `scan()` opening `base` to read it back generates an Access event on
+/// `base` - which `is_relevant` would otherwise treat as always-relevant,
+/// restarting the debounce forever. macOS's FSEvents backend doesn't report
+/// plain opens this way, so this feedback loop is Linux-only.
 async fn watch_loop(
     mut events: mpsc::UnboundedReceiver<notify::Event>,
     base: PathBuf,
@@ -88,7 +95,9 @@ async fn watch_loop(
             event = events.recv() => {
                 match event {
                     Some(event) => {
-                        if event.paths.iter().any(|p| is_relevant(p, &base)) {
+                        if !matches!(event.kind, notify::EventKind::Access(_))
+                            && event.paths.iter().any(|p| is_relevant(p, &base))
+                        {
                             deadline = Some(Instant::now() + DEBOUNCE);
                         }
                     }
