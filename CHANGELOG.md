@@ -13,6 +13,9 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - `AGENTS.md` rewritten around the Rust port; `CLAUDE.md` is now a symlink to it
 
+### Fixed
+- `skwad-discovery`: switching the source folder could race a not-yet-torn-down watcher into publishing a stale rescan from the previous folder
+
 
 ## [1.9.0] - 2026-04-03
 
