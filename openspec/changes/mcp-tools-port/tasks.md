@@ -95,10 +95,18 @@
       spec) and `ToolCatalog::call` (dispatch by name, `unknown tool: x`
       for anything else); verify a unit test asserting `list()` returns
       exactly the thirteen names with `type: "object"` schemas.
-- [ ] 7.2 Wire `McpToolCatalog` into wherever `crates/skwad` constructs
-      `McpServer`, replacing `EmptyCatalog`; verify `cargo build -p skwad`
-      and a manual `tools/list` HTTP round-trip (or an integration test if
-      one already drives `McpServer` end-to-end) returns the full catalog.
+- [x] 7.2 `crates/skwad` had no `McpServer`/`EmptyCatalog` construction at
+      all yet (bare `gpui-kit` shell, no tokio, no backend deps) - added
+      `main.rs::start_mcp_server`, a dedicated OS thread running a tokio
+      runtime that loads `Settings`, starts `Discovery` on the configured
+      source folder, builds `McpToolCatalog`, and starts `McpServer` on
+      `mcp_server_port` when `mcp_server_enabled`. Verified with
+      `cargo build -p skwad` and a manual `cargo run -p skwad` +
+      `curl 127.0.0.1:8766/mcp` `tools/list` round-trip returning all
+      thirteen tools. `AgentStore` starts empty - restoring
+      `saved_agents`/`saved_workspaces` into a running store has no loader
+      yet; that belongs to agent-lifecycle-port's integration surface, out
+      of scope here.
 
 ## 8. Full-suite verification
 

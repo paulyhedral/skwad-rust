@@ -54,6 +54,12 @@ impl McpToolCatalog {
     pub fn set_bench_agents(&self, bench_agents: Vec<BenchAgent>) {
         *self.bench_agents.lock().unwrap() = bench_agents;
     }
+
+    /// A clone of the current agent list, for `McpServer`'s
+    /// `AgentsSnapshotFn` (the `GET /api/v1/agent/status` endpoint).
+    pub fn agents_snapshot(&self) -> Vec<skwad_agents::Agent> {
+        self.agents.lock().unwrap().agents().to_vec()
+    }
 }
 
 fn prop(schema_type: &str, description: &str) -> PropertySchema {

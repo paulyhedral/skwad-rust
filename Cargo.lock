@@ -6596,7 +6596,13 @@ name = "skwad"
 version = "0.1.0"
 dependencies = [
  "gpui-kit",
+ "skwad-agents",
  "skwad-core",
+ "skwad-discovery",
+ "skwad-mcp",
+ "skwad-mcp-tools",
+ "skwad-messaging",
+ "tokio",
 ]
 
 [[package]]

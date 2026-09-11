@@ -9,4 +9,10 @@ default-run = "skwad"
 
 [dependencies]
 skwad-core = { path = "../skwad-core" }
+skwad-agents = { path = "../skwad-agents" }
+skwad-discovery = { path = "../skwad-discovery" }
+skwad-messaging = { path = "../skwad-messaging" }
+skwad-mcp = { path = "../skwad-mcp" }
+skwad-mcp-tools = { path = "../skwad-mcp-tools" }
+tokio.workspace = true
 gpui-kit = "0.6"
