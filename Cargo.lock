@@ -6606,6 +6606,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "skwad-agent-launch"
+version = "0.1.0"
+dependencies = [
+ "skwad-core",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
 name = "skwad-agents"
 version = "0.1.0"
 dependencies = [
