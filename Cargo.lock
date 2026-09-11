@@ -6671,6 +6671,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "skwad-messaging"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "skwad-agents",
+ "thiserror 2.0.20",
+ "uuid",
+]
+
+[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
