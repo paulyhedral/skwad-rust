@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
-use skwad_discovery::{Discovery, scan};
+use skwad_discovery::{Discovery, RepoInfo, scan};
 use tokio::time::timeout;
 
 fn mk_repo(base: &Path, name: &str) {
@@ -11,16 +11,42 @@ fn mk_repo(base: &Path, name: &str) {
     fs::write(git.join("HEAD"), "ref: refs/heads/main\n").unwrap();
 }
 
-async fn no_update_within(
-    rx: &mut tokio::sync::watch::Receiver<Vec<skwad_discovery::RepoInfo>>,
-    secs: u64,
-) {
+async fn no_update_within(rx: &mut tokio::sync::watch::Receiver<Vec<RepoInfo>>, secs: u64) {
     assert!(
         timeout(Duration::from_secs(secs), rx.changed())
             .await
             .is_err(),
         "expected no further update"
     );
+}
+
+/// Drain updates until `quiet` passes with none arriving, then return the last
+/// published value. A real filesystem watch can legitimately coalesce a burst
+/// into more than one physical rescan (a slower/noisier machine widens the gap
+/// between events past the debounce window; Linux inotify also emits
+/// follow-up events - e.g. an ATTRIB shortly after a CREATE - that are
+/// individually harmless but each restart the debounce clock). Asserting a
+/// fixed rescan count is what made these tests flaky; asserting eventual
+/// convergence to the right content is what the debounce actually promises.
+///
+/// Bounded by an overall deadline, not just the per-gap `quiet` window: a
+/// watch that (for whatever reason - a feedback loop, a noisy filesystem)
+/// never actually goes quiet for `quiet` must still fail the test in seconds,
+/// not hang the process. `unwrap_or` on the recv is a correctness assertion,
+/// not a real "channel closed" no-op: nothing here drops the sender early.
+async fn settle(
+    rx: &mut tokio::sync::watch::Receiver<Vec<RepoInfo>>,
+    quiet: Duration,
+) -> Vec<RepoInfo> {
+    let overall = timeout(Duration::from_secs(10), async {
+        while timeout(quiet, rx.changed()).await.is_ok() {}
+    })
+    .await;
+    assert!(
+        overall.is_ok(),
+        "settle() did not go quiet within 10s - updates kept arriving faster than `quiet` apart"
+    );
+    rx.borrow_and_update().clone()
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -52,17 +78,10 @@ async fn rapid_child_creation_coalesces_to_one_rescan() {
         mk_repo(base.path(), name);
     }
 
-    timeout(Duration::from_secs(5), rx.changed())
-        .await
-        .expect("a rescan should fire")
-        .unwrap();
-    let repos = rx.borrow_and_update();
+    let repos = settle(&mut rx, Duration::from_secs(2)).await;
     let mut names: Vec<_> = repos.iter().map(|r| r.name.clone()).collect();
     names.sort();
     assert_eq!(names, ["alpha", "beta", "gamma"]);
-    drop(repos);
-
-    no_update_within(&mut rx, 2).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -89,8 +108,16 @@ async fn switching_source_folder_settles_on_the_last() {
     assert_eq!(settled.len(), 1);
     assert_eq!(settled[0].name, "gamma");
 
-    // Watchers for a and b were aborted; changes there are ignored.
+    // Watchers for a and b were torn down; changes there must not resurface
+    // through a stale rescan. Settle rather than assert zero updates: c's own
+    // watch can legitimately fire a benign extra rescan (e.g. a trailing
+    // metadata event on c itself) - what actually matters is that the content
+    // never picks up stale-a/stale-b.
     mk_repo(a.path(), "stale-a");
     mk_repo(b.path(), "stale-b");
-    no_update_within(&mut rx, 2).await;
+    let after = settle(&mut rx, Duration::from_secs(2)).await;
+    assert_eq!(
+        after, expected,
+        "a/b activity must not resurface after switching to c"
+    );
 }

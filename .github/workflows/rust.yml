@@ -13,10 +13,21 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Install Linux system dependencies (gpui-component build requirements)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc g++ clang libfontconfig-dev libwayland-dev \
+            libwebkit2gtk-4.1-dev libxkbcommon-x11-dev libx11-xcb-dev \
+            libssl-dev libzstd-dev \
+            vulkan-validationlayers libvulkan1
 
       - name: Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v2
@@ -39,8 +50,19 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Test
-        run: cargo test --workspace
+      # Split per-crate (rather than one `cargo test --workspace`) so a hang or
+      # failure names the crate directly in the job summary instead of a
+      # single opaque "Test" step.
+      - name: Test (skwad-core)
+        run: cargo test -p skwad-core
+      - name: Test (skwad-git)
+        run: cargo test -p skwad-git
+      - name: Test (skwad-discovery)
+        run: cargo test -p skwad-discovery
+      - name: Test (skwad-history)
+        run: cargo test -p skwad-history
+      - name: Test (skwad)
+        run: cargo test -p skwad
 
       - name: Build
         run: cargo build --workspace
