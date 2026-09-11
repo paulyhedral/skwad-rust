@@ -14,4 +14,6 @@ jobs:
     uses: sweetrpg/github-actions/.github/workflows/rust-tag-release.yaml@master
     with:
       release-branch: main
-    secrets: inherit
+    secrets:
+      SRPG_CI_APP_ID: ${{ secrets.SKWAD_CI_APP_ID }}
+      SRPG_CI_PRIVATE_KEY: ${{ secrets.SKWAD_CI_PRIVATE_KEY }}

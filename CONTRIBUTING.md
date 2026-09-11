@@ -79,7 +79,7 @@ calling the reusable `sweetrpg/github-actions` `rust-*-release` workflows:
    test suite, cuts a GitHub Release with `git-cliff`-generated notes, and
    merges `main` back into `develop` so the two branches stay in sync.
 
-These need repo secrets `SRPG_CI_APP_ID` / `SRPG_CI_PRIVATE_KEY` (a GitHub App
+These need repo secrets `SKWAD_CI_APP_ID` / `SKWAD_CI_PRIVATE_KEY` (a GitHub App
 with `contents: write` + `pull-requests: write`, installed on this repo) before
 Prepare/Tag Release can run - they mint a bot token so the release commit and
 the develop merge-back satisfy branch protection. No crate here publishes to
