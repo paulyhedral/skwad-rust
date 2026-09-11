@@ -10,4 +10,4 @@ copy `0000-template.md` by hand and add a row below.
 
 | ADR | Title | Status | Decision | Date |
 | --- | ----- | ------ | -------- | ---- |
-| -   | -     | -      | -        | -    |
+| [0001](0001-git-flow.md) | Git-flow branching model | accepted | `develop` integration branch, `main` release-only | 2026-09-10 |
