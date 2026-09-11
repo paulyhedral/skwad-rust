@@ -23,6 +23,6 @@ pub use diff::{DiffLine, FileDiff, Hunk, LineKind};
 pub use error::{GitError, Result};
 pub use repository::Repository;
 pub use runner::Runner;
-pub use stats::{parse_numstat, DiffStats};
+pub use stats::{DiffStats, parse_numstat};
 pub use status::{ChangeType, FileEntry, RepoStatus};
 pub use worktree::{is_working_tree, suggest_worktree_path};

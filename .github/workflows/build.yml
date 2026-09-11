@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
@@ -107,7 +107,7 @@ jobs:
           SIGNING_CERTIFICATE: ${{ secrets.SIGNING_CERTIFICATE }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Skwad-${{ steps.version.outputs.version }}
           path: |
@@ -117,7 +117,7 @@ jobs:
 
       - name: Create GitHub Release (prerelease)
         if: ${{ inputs.release_type == 'prerelease' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.version.outputs.version }}.${{ steps.version.outputs.build }}
           name: Skwad v${{ steps.version.outputs.version }} (build ${{ steps.version.outputs.build }})
@@ -130,7 +130,7 @@ jobs:
 
       - name: Create GitHub Release (latest)
         if: ${{ inputs.release_type == 'latest' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.version.outputs.version }}.${{ steps.version.outputs.build }}
           name: Skwad v${{ steps.version.outputs.version }} (build ${{ steps.version.outputs.build }})
