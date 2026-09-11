@@ -223,7 +223,7 @@ fn push_hunk_line(hunk: &mut Hunk, line: &str, old_lineno: &mut u32, new_lineno:
 
 #[cfg(test)]
 mod tests {
-    use super::{classify, parse_diff, LineKind};
+    use super::{LineKind, classify, parse_diff};
 
     const NO_COUNTS: &str = "\
 diff --git a/file.txt b/file.txt

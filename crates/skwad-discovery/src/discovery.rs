@@ -1,14 +1,14 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use notify::{recommended_watcher, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher, recommended_watcher};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
-use tokio::time::{sleep_until, Instant};
+use tokio::time::{Instant, sleep_until};
 
 use crate::consts::{DEBOUNCE, GIT_DIR};
 use crate::error::Result;
-use crate::scan::{scan, RepoInfo};
+use crate::scan::{RepoInfo, scan};
 
 /// Coordinates repository discovery for a single source folder: an initial
 /// scan, a non-recursive watch on the folder, and a debounced rescan that

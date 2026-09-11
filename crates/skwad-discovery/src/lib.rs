@@ -14,4 +14,4 @@ pub mod scan;
 
 pub use discovery::Discovery;
 pub use error::{DiscoveryError, Result};
-pub use scan::{scan, RepoInfo, WorktreeInfo};
+pub use scan::{RepoInfo, WorktreeInfo, scan};
