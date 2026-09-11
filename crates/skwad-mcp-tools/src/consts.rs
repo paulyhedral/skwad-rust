@@ -1,0 +1,13 @@
+pub const REGISTER_AGENT: &str = "register-agent";
+pub const LIST_AGENTS: &str = "list-agents";
+pub const SEND_MESSAGE: &str = "send-message";
+pub const CHECK_MESSAGES: &str = "check-messages";
+pub const BROADCAST_MESSAGE: &str = "broadcast-message";
+pub const LIST_REPOS: &str = "list-repos";
+pub const LIST_WORKTREES: &str = "list-worktrees";
+pub const CREATE_AGENT: &str = "create-agent";
+pub const CLOSE_AGENT: &str = "close-agent";
+pub const CREATE_WORKTREE: &str = "create-worktree";
+pub const SET_STATUS: &str = "set-status";
+pub const DISPLAY_MARKDOWN: &str = "display-markdown";
+pub const VIEW_MERMAID: &str = "view-mermaid";

@@ -151,6 +151,11 @@ fn test_agent(name: &str, registered: bool) -> Agent {
         resume_session_id: None,
         fork_session: false,
         metadata: Default::default(),
+        markdown_file: None,
+        markdown_maximized: false,
+        markdown_history: Vec::new(),
+        mermaid_source: None,
+        mermaid_title: None,
     }
 }
 

@@ -6596,7 +6596,13 @@ name = "skwad"
 version = "0.1.0"
 dependencies = [
  "gpui-kit",
+ "skwad-agents",
  "skwad-core",
+ "skwad-discovery",
+ "skwad-mcp",
+ "skwad-mcp-tools",
+ "skwad-messaging",
+ "tokio",
 ]
 
 [[package]]
@@ -6667,6 +6673,26 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tokio-stream",
+ "uuid",
+]
+
+[[package]]
+name = "skwad-mcp-tools"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "skwad-agents",
+ "skwad-core",
+ "skwad-discovery",
+ "skwad-git",
+ "skwad-mcp",
+ "skwad-messaging",
+ "tempfile",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
  "uuid",
 ]
 

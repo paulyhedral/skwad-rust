@@ -1,0 +1,26 @@
+[package]
+name = "skwad-mcp-tools"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+time.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+skwad-mcp = { path = "../skwad-mcp" }
+skwad-core = { path = "../skwad-core" }
+skwad-agents = { path = "../skwad-agents" }
+skwad-messaging = { path = "../skwad-messaging" }
+skwad-discovery = { path = "../skwad-discovery" }
+skwad-git = { path = "../skwad-git" }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
