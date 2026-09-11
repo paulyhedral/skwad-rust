@@ -6489,6 +6489,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "skwad-agents"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "skwad-core",
+ "thiserror 2.0.20",
+ "uuid",
+]
+
+[[package]]
 name = "skwad-core"
 version = "0.1.0"
 dependencies = [
