@@ -238,6 +238,74 @@ impl Settings {
         }
         Ok(())
     }
+
+    /// Add a new user persona, enabled by default.
+    pub fn add_persona(
+        &mut self,
+        name: impl Into<String>,
+        instructions: impl Into<String>,
+    ) -> Result<&Persona> {
+        let persona = Persona {
+            id: Uuid::new_v4(),
+            name: name.into(),
+            instructions: instructions.into(),
+            persona_type: PersonaType::User,
+            state: PersonaState::Enabled,
+        };
+        self.personas.push(persona);
+        self.persist()?;
+        Ok(self.personas.last().expect("just pushed"))
+    }
+
+    /// Rewrite name/instructions for an existing persona of any type. A no-op
+    /// if `id` is not present.
+    pub fn update_persona(
+        &mut self,
+        id: Uuid,
+        name: impl Into<String>,
+        instructions: impl Into<String>,
+    ) -> Result<()> {
+        let Some(persona) = self.personas.iter_mut().find(|p| p.id == id) else {
+            return Ok(());
+        };
+        persona.name = name.into();
+        persona.instructions = instructions.into();
+        self.persist()
+    }
+
+    /// Look up a persona by id, restricted to the active (non-deleted) list.
+    pub fn persona(&self, id: Uuid) -> Option<&Persona> {
+        self.active_personas().into_iter().find(|p| p.id == id)
+    }
+
+    /// Remove a persona: soft delete (state becomes `deleted`, record kept)
+    /// for a system persona, hard delete (record removed) for a user persona.
+    /// A no-op if `id` is not present.
+    pub fn remove_persona(&mut self, id: Uuid) -> Result<()> {
+        let Some(index) = self.personas.iter().position(|p| p.id == id) else {
+            return Ok(());
+        };
+        if self.personas[index].persona_type == PersonaType::System {
+            self.personas[index].state = PersonaState::Deleted;
+        } else {
+            self.personas.remove(index);
+        }
+        self.persist()
+    }
+
+    /// Reset every shipped default persona already present (matched by id,
+    /// including soft-deleted ones) to its shipped name, instructions, type,
+    /// and state; append any shipped default that is entirely missing. User
+    /// personas are untouched.
+    pub fn restore_default_personas(&mut self) -> Result<()> {
+        for default in default_personas() {
+            match self.personas.iter_mut().find(|p| p.id == default.id) {
+                Some(existing) => *existing = default,
+                None => self.personas.push(default),
+            }
+        }
+        self.persist()
+    }
 }
 
 /// Return the first candidate that is an existing directory.
@@ -436,6 +504,108 @@ mod tests {
         assert_eq!(s.personas.len(), 6);
         s.install_default_personas().unwrap();
         assert_eq!(s.personas.len(), 6);
+    }
+
+    #[test]
+    fn add_update_and_lookup_persona() {
+        let dir = tempdir().unwrap();
+        let mut s = Settings::with_store_path(dir.path().join("settings.json"));
+        let id = s.add_persona("Rookie", "be helpful").unwrap().id;
+        assert_eq!(s.personas.len(), 1);
+        assert_eq!(s.persona(id).unwrap().name, "Rookie");
+
+        s.update_persona(id, "Veteran", "be terse").unwrap();
+        let persona = s.persona(id).unwrap();
+        assert_eq!(persona.name, "Veteran");
+        assert_eq!(persona.instructions, "be terse");
+
+        s.update_persona(agent_id(), "Nobody", "").unwrap();
+        assert_eq!(s.personas.len(), 1);
+    }
+
+    #[test]
+    fn persona_lookup_excludes_deleted() {
+        let dir = tempdir().unwrap();
+        let mut s = Settings::with_store_path(dir.path().join("settings.json"));
+        s.personas = vec![Persona {
+            id: agent_id(),
+            name: "gone".to_string(),
+            instructions: String::new(),
+            persona_type: PersonaType::System,
+            state: PersonaState::Deleted,
+        }];
+        assert!(s.persona(s.personas[0].id).is_none());
+    }
+
+    #[test]
+    fn remove_persona_soft_deletes_system_and_hard_deletes_user() {
+        let dir = tempdir().unwrap();
+        let mut s = Settings::with_store_path(dir.path().join("settings.json"));
+        let system_id = agent_id();
+        let user_id = agent_id();
+        s.personas = vec![
+            Persona {
+                id: system_id,
+                name: "System".to_string(),
+                instructions: String::new(),
+                persona_type: PersonaType::System,
+                state: PersonaState::Enabled,
+            },
+            Persona {
+                id: user_id,
+                name: "User".to_string(),
+                instructions: String::new(),
+                persona_type: PersonaType::User,
+                state: PersonaState::Enabled,
+            },
+        ];
+
+        s.remove_persona(system_id).unwrap();
+        assert_eq!(s.personas.len(), 2);
+        assert_eq!(
+            s.personas.iter().find(|p| p.id == system_id).unwrap().state,
+            PersonaState::Deleted
+        );
+
+        s.remove_persona(user_id).unwrap();
+        assert_eq!(s.personas.len(), 1);
+        assert!(s.personas.iter().all(|p| p.id != user_id));
+
+        s.remove_persona(agent_id()).unwrap();
+        assert_eq!(s.personas.len(), 1);
+    }
+
+    #[test]
+    fn restore_default_personas_reverts_edits_and_adds_missing() {
+        let dir = tempdir().unwrap();
+        let mut s = Settings::with_store_path(dir.path().join("settings.json"));
+        let (id, name, instructions) = DEFAULT_PERSONAS[0];
+        let id = Uuid::parse_str(id).unwrap();
+        s.personas = vec![
+            Persona {
+                id,
+                name: "Renamed".to_string(),
+                instructions: "different".to_string(),
+                persona_type: PersonaType::System,
+                state: PersonaState::Disabled,
+            },
+            Persona {
+                id: agent_id(),
+                name: "Mine".to_string(),
+                instructions: "keep me".to_string(),
+                persona_type: PersonaType::User,
+                state: PersonaState::Enabled,
+            },
+        ];
+
+        s.restore_default_personas().unwrap();
+
+        assert_eq!(s.personas.len(), 7);
+        let restored = s.personas.iter().find(|p| p.id == id).unwrap();
+        assert_eq!(restored.name, name);
+        assert_eq!(restored.instructions, instructions);
+        assert_eq!(restored.state, PersonaState::Enabled);
+        assert!(s.personas.iter().any(|p| p.name == "Mine"));
     }
 
     #[test]
