@@ -13,6 +13,9 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - `AGENTS.md` rewritten around the Rust port; `CLAUDE.md` is now a symlink to it
 
+### Fixed
+- `workspace (ubuntu-latest)` CI: install the Linux system packages `gpui-component` needs to build (fontconfig, wayland, webkit2gtk, xkbcommon, x11-xcb, ssl, zstd, vulkan) - the job failed on every run without them
+
 
 ## [1.9.0] - 2026-04-03
 

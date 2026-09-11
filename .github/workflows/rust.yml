@@ -18,6 +18,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Install Linux system dependencies (gpui-component build requirements)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc g++ clang libfontconfig-dev libwayland-dev \
+            libwebkit2gtk-4.1-dev libxkbcommon-x11-dev libx11-xcb-dev \
+            libssl-dev libzstd-dev \
+            vulkan-validationlayers libvulkan1
+
       - name: Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
