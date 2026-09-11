@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -48,6 +49,15 @@ pub struct Agent {
     pub resume_session_id: Option<String>,
     pub fork_session: bool,
     pub metadata: BTreeMap<String, String>,
+
+    // Panel state, set by the `display-markdown` / `view-mermaid` MCP
+    // tools. Not yet consumed by any UI.
+    pub markdown_file: Option<PathBuf>,
+    pub markdown_maximized: bool,
+    /// Most recent first.
+    pub markdown_history: Vec<PathBuf>,
+    pub mermaid_source: Option<String>,
+    pub mermaid_title: Option<String>,
 }
 
 impl Agent {
@@ -128,6 +138,11 @@ mod tests {
             resume_session_id: None,
             fork_session: false,
             metadata: BTreeMap::new(),
+            markdown_file: None,
+            markdown_maximized: false,
+            markdown_history: Vec::new(),
+            mermaid_source: None,
+            mermaid_title: None,
         }
     }
 }

@@ -33,6 +33,11 @@ pub fn from_saved(saved: &SavedAgent) -> Agent {
         resume_session_id: None,
         fork_session: false,
         metadata: BTreeMap::new(),
+        markdown_file: None,
+        markdown_maximized: false,
+        markdown_history: Vec::new(),
+        mermaid_source: None,
+        mermaid_title: None,
     }
 }
 

@@ -6671,6 +6671,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "skwad-mcp-tools"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "skwad-agents",
+ "skwad-core",
+ "skwad-discovery",
+ "skwad-git",
+ "skwad-mcp",
+ "skwad-messaging",
+ "tempfile",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "skwad-messaging"
 version = "0.1.0"
 dependencies = [

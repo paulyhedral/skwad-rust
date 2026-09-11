@@ -73,6 +73,33 @@ impl AgentStore {
         self.agents.iter().find(|a| a.id == id)
     }
 
+    fn agent_mut(&mut self, id: Uuid) -> Option<&mut Agent> {
+        self.agents.iter_mut().find(|a| a.id == id)
+    }
+
+    /// A no-op on an unknown `id`, matching the Swift reference's
+    /// `AgentDataProvider.setRegistered`/`setSessionId`/`setAgentStatusText`,
+    /// which silently ignore a stale caller id rather than erroring.
+    pub fn set_registered(&mut self, id: Uuid, registered: bool) {
+        if let Some(agent) = self.agent_mut(id) {
+            agent.is_registered = registered;
+        }
+    }
+
+    pub fn set_session_id(&mut self, id: Uuid, session_id: String) {
+        if let Some(agent) = self.agent_mut(id) {
+            agent.session_id = Some(session_id);
+        }
+    }
+
+    /// Sets the agent-facing status text (`set-status`'s target); distinct
+    /// from `AgentState`, the automatic state machine.
+    pub fn set_status_text(&mut self, id: Uuid, status: String) {
+        if let Some(agent) = self.agent_mut(id) {
+            agent.status_text = status;
+        }
+    }
+
     pub fn add_workspace(&mut self, workspace: Workspace) {
         self.workspaces.push(workspace);
     }
@@ -144,6 +171,11 @@ impl AgentStore {
             resume_session_id: None,
             fork_session: false,
             metadata: BTreeMap::new(),
+            markdown_file: None,
+            markdown_maximized: false,
+            markdown_history: Vec::new(),
+            mermaid_source: None,
+            mermaid_title: None,
         };
         let id = agent.id;
 
@@ -334,6 +366,45 @@ impl AgentStore {
         if needs_restart {
             self.restart(id)?;
         }
+        Ok(())
+    }
+
+    // -- Panels ----------------------------------------------------------
+
+    /// Sets the markdown panel target and pushes `file` to the front of the
+    /// history, deduping so a re-shown file moves to the front instead of
+    /// appearing twice.
+    pub fn set_markdown_panel(
+        &mut self,
+        id: Uuid,
+        file: std::path::PathBuf,
+        maximized: bool,
+    ) -> Result<()> {
+        let agent = self
+            .agents
+            .iter_mut()
+            .find(|a| a.id == id)
+            .ok_or(AgentError::NotFound(id))?;
+        agent.markdown_history.retain(|f| *f != file);
+        agent.markdown_history.insert(0, file.clone());
+        agent.markdown_file = Some(file);
+        agent.markdown_maximized = maximized;
+        Ok(())
+    }
+
+    pub fn set_mermaid_panel(
+        &mut self,
+        id: Uuid,
+        source: String,
+        title: Option<String>,
+    ) -> Result<()> {
+        let agent = self
+            .agents
+            .iter_mut()
+            .find(|a| a.id == id)
+            .ok_or(AgentError::NotFound(id))?;
+        agent.mermaid_source = Some(source);
+        agent.mermaid_title = title;
         Ok(())
     }
 
@@ -689,5 +760,76 @@ mod tests {
         let target_ws = s.workspaces().iter().find(|w| w.id == target).unwrap();
         assert_eq!(target_ws.agent_ids, vec![a]);
         assert_eq!(target_ws.active_agent_ids, vec![a]);
+    }
+
+    #[test]
+    fn markdown_panel_history_dedups_and_moves_to_front() {
+        let mut s = store();
+        let id = s.create("/tmp/a", CreateOptions::default());
+        let file_a = std::path::PathBuf::from("/tmp/a/A.md");
+        let file_b = std::path::PathBuf::from("/tmp/a/B.md");
+
+        s.set_markdown_panel(id, file_a.clone(), false).unwrap();
+        s.set_markdown_panel(id, file_b.clone(), false).unwrap();
+        s.set_markdown_panel(id, file_a.clone(), true).unwrap();
+
+        let agent = s.agent(id).unwrap();
+        assert_eq!(agent.markdown_history, vec![file_a.clone(), file_b]);
+        assert_eq!(agent.markdown_file, Some(file_a));
+        assert!(agent.markdown_maximized);
+    }
+
+    #[test]
+    fn set_registered_and_session_id_apply_to_the_agent() {
+        let mut s = store();
+        let id = s.create("/tmp/a", CreateOptions::default());
+
+        s.set_registered(id, true);
+        s.set_session_id(id, "sess-1".to_string());
+
+        let agent = s.agent(id).unwrap();
+        assert!(agent.is_registered);
+        assert_eq!(agent.session_id.as_deref(), Some("sess-1"));
+    }
+
+    #[test]
+    fn set_status_text_updates_status_not_state() {
+        let mut s = store();
+        let id = s.create("/tmp/a", CreateOptions::default());
+
+        s.set_status_text(id, "Running tests".to_string());
+
+        let agent = s.agent(id).unwrap();
+        assert_eq!(agent.status_text, "Running tests");
+        assert_eq!(agent.state, AgentState::Idle);
+    }
+
+    #[test]
+    fn setters_on_unknown_agent_are_a_no_op() {
+        let mut s = store();
+        let stale = Uuid::new_v4();
+        s.set_registered(stale, true);
+        s.set_status_text(stale, "x".to_string());
+        assert!(s.agent(stale).is_none());
+    }
+
+    #[test]
+    fn markdown_panel_unknown_agent_errors() {
+        let mut s = store();
+        let result = s.set_markdown_panel(Uuid::new_v4(), std::path::PathBuf::from("/x.md"), false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn mermaid_panel_round_trips_source_and_title() {
+        let mut s = store();
+        let id = s.create("/tmp/a", CreateOptions::default());
+
+        s.set_mermaid_panel(id, "graph TD; A-->B;".to_string(), Some("Flow".to_string()))
+            .unwrap();
+
+        let agent = s.agent(id).unwrap();
+        assert_eq!(agent.mermaid_source.as_deref(), Some("graph TD; A-->B;"));
+        assert_eq!(agent.mermaid_title.as_deref(), Some("Flow"));
     }
 }
