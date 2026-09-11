@@ -21,4 +21,6 @@ jobs:
       tag: ${{ inputs.tag }}
       publish-to-crates-io: false
       merge-back-branch: develop
-    secrets: inherit
+    secrets:
+      SRPG_CI_APP_ID: ${{ secrets.SKWAD_CI_APP_ID }}
+      SRPG_CI_PRIVATE_KEY: ${{ secrets.SKWAD_CI_PRIVATE_KEY }}

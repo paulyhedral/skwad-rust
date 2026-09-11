@@ -15,4 +15,6 @@ jobs:
       base-branch: main
       reviewer: paulyhedral
       release-label: release
-    secrets: inherit
+    secrets:
+      SRPG_CI_APP_ID: ${{ secrets.SKWAD_CI_APP_ID }}
+      SRPG_CI_PRIVATE_KEY: ${{ secrets.SKWAD_CI_PRIVATE_KEY }}
