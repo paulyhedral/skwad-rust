@@ -6701,6 +6701,7 @@ dependencies = [
  "async-trait",
  "serde",
  "serde_json",
+ "skwad-activity",
  "skwad-agents",
  "skwad-core",
  "skwad-discovery",

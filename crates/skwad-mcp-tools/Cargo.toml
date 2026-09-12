@@ -17,6 +17,7 @@ async-trait.workspace = true
 skwad-mcp = { path = "../skwad-mcp" }
 skwad-core = { path = "../skwad-core" }
 skwad-agents = { path = "../skwad-agents" }
+skwad-activity = { path = "../skwad-activity" }
 skwad-messaging = { path = "../skwad-messaging" }
 skwad-discovery = { path = "../skwad-discovery" }
 skwad-git = { path = "../skwad-git" }
