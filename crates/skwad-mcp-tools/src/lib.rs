@@ -467,11 +467,11 @@ impl ToolCatalog for McpToolCatalog {
             ),
             consts::LIST_REPOS => repos::list_repos(&self.repos.borrow()),
             consts::LIST_WORKTREES => repos::list_worktrees(&self.repos.borrow(), &arguments),
-            consts::CREATE_AGENT => agents::create_agent(
-                &mut self.agents.lock().unwrap(),
-                &arguments,
-                &self.bench_agents.lock().unwrap(),
-            ),
+            consts::CREATE_AGENT => {
+                let mut bench_agents = self.bench_agents.lock().unwrap();
+                bench_agents.retain(|bench| std::path::Path::new(&bench.folder).is_dir());
+                agents::create_agent(&mut self.agents.lock().unwrap(), &arguments, &bench_agents)
+            }
             consts::CLOSE_AGENT => {
                 agents::close_agent(&mut self.agents.lock().unwrap(), &arguments)
             }
