@@ -11,9 +11,11 @@ mod panels;
 mod repos;
 mod responses;
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use skwad_activity::{EventSink, Tracker, TrackerConfig, tracking_for};
 use skwad_agents::{AgentState, AgentStore};
 use skwad_core::BenchAgent;
 use skwad_core::Settings;
@@ -24,6 +26,7 @@ use skwad_mcp::{
 };
 use skwad_messaging::{DeliveryNotifier, MessageStore};
 use tokio::sync::watch;
+use uuid::Uuid;
 
 use crate::lookup::state_string;
 
@@ -31,12 +34,13 @@ use crate::lookup::state_string;
 /// `openspec/specs/mcp-tools/spec.md`. Holds every piece of shared state a
 /// handler needs; each `call` locks only what that tool touches.
 pub struct McpToolCatalog {
-    agents: Mutex<AgentStore>,
+    agents: Arc<Mutex<AgentStore>>,
     messages: Mutex<MessageStore>,
     notifier: Arc<dyn DeliveryNotifier + Send + Sync>,
     repos: watch::Receiver<Vec<RepoInfo>>,
     bench_agents: Mutex<Vec<BenchAgent>>,
     settings: Mutex<Option<Settings>>,
+    trackers: Mutex<HashMap<Uuid, Tracker>>,
 }
 
 impl McpToolCatalog {
@@ -46,12 +50,13 @@ impl McpToolCatalog {
         notifier: Arc<dyn DeliveryNotifier + Send + Sync>,
     ) -> Self {
         Self {
-            agents: Mutex::new(agents),
+            agents: Arc::new(Mutex::new(agents)),
             messages: Mutex::new(MessageStore::new()),
             notifier,
             repos,
             bench_agents: Mutex::new(Vec::new()),
             settings: Mutex::new(None),
+            trackers: Mutex::new(HashMap::new()),
         }
     }
 
@@ -83,6 +88,37 @@ impl McpToolCatalog {
         settings.saved_agents = agents.saved_agents();
         settings.saved_workspaces = agents.saved_workspaces();
         settings.persist().map_err(|error| error.to_string())
+    }
+
+    fn tracker_for(&self, id: Uuid, agent_type: &str) -> bool {
+        if !matches!(agent_type, "claude" | "codex") {
+            return false;
+        }
+        let mut trackers = self.trackers.lock().unwrap();
+        if trackers.contains_key(&id) {
+            return true;
+        }
+        if tokio::runtime::Handle::try_current().is_err() {
+            return false;
+        }
+
+        let agents = Arc::clone(&self.agents);
+        let sink = EventSink {
+            on_status: Some(Box::new(move |event| {
+                agents.lock().unwrap().set_state(id, event.status);
+            })),
+            ..Default::default()
+        };
+        let tracker = Tracker::spawn(
+            TrackerConfig {
+                is_hook_based: true,
+                ..TrackerConfig::for_agent_type(agent_type)
+            },
+            tracking_for(agent_type),
+            sink,
+        );
+        trackers.insert(id, tracker);
+        true
     }
 }
 
@@ -140,13 +176,15 @@ impl AgentHookHandler for McpToolCatalog {
 
     fn status(&self, request: &HookRequest) -> Result<serde_json::Value, skwad_mcp::HookError> {
         let id = request.agent_id()?;
-        let mut agents = self.agents.lock().unwrap();
-        if agents.agent(id).is_none() {
+        if self.agents.lock().unwrap().agent(id).is_none() {
             return Err(skwad_mcp::HookError::InvalidPayload(
                 "Agent not found".to_string(),
             ));
         }
-        agents.update_metadata(id, extract_metadata(&request.agent, &request.payload));
+        self.agents
+            .lock()
+            .unwrap()
+            .update_metadata(id, extract_metadata(&request.agent, &request.payload));
         let status = match request.agent.as_str() {
             "claude" => claude_status(
                 request
@@ -157,20 +195,27 @@ impl AgentHookHandler for McpToolCatalog {
             "codex" => {
                 let thread_id = codex_turn_complete(&request.payload)?;
                 if let Some(thread_id) = thread_id {
-                    agents.set_session_id(id, thread_id);
+                    self.agents.lock().unwrap().set_session_id(id, thread_id);
                 }
                 HookStatus::Idle
             }
             agent => return Err(skwad_mcp::HookError::UnknownAgent(agent.to_string())),
         };
-        agents.set_state(
-            id,
-            match status {
-                HookStatus::Working => AgentState::Running,
-                HookStatus::Idle => AgentState::Idle,
-                HookStatus::AwaitingInput => AgentState::Input,
-            },
-        );
+        let state = match status {
+            HookStatus::Working => AgentState::Running,
+            HookStatus::Idle => AgentState::Idle,
+            HookStatus::AwaitingInput => AgentState::Input,
+        };
+        if self.tracker_for(id, &request.agent) {
+            self.trackers
+                .lock()
+                .unwrap()
+                .get(&id)
+                .expect("tracker inserted above")
+                .apply_hook_status(state, None);
+        } else {
+            self.agents.lock().unwrap().set_state(id, state);
+        }
         Ok(serde_json::json!({"success": true}))
     }
 }
@@ -570,8 +615,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn hook_status_updates_state_and_codex_session() {
+    #[tokio::test]
+    async fn hook_status_updates_state_through_tracker_and_codex_session() {
         let cat = catalog();
         let id = cat
             .agents
@@ -586,8 +631,32 @@ mod tests {
         .unwrap();
 
         cat.status(&request).unwrap();
+        tokio::task::yield_now().await;
         let agent = cat.agents.lock().unwrap().agent(id).unwrap().clone();
         assert_eq!(agent.state, AgentState::Idle);
         assert_eq!(agent.session_id.as_deref(), Some("thread-1"));
+    }
+
+    #[tokio::test]
+    async fn claude_hook_status_updates_state_through_tracker() {
+        let cat = catalog();
+        let id = cat
+            .agents
+            .lock()
+            .unwrap()
+            .create("/tmp/a", skwad_agents::CreateOptions::default());
+        let request: HookRequest = serde_json::from_value(serde_json::json!({
+            "agent_id": id,
+            "agent": "claude",
+            "status": "input"
+        }))
+        .unwrap();
+
+        cat.status(&request).unwrap();
+        tokio::task::yield_now().await;
+        assert_eq!(
+            cat.agents.lock().unwrap().agent(id).unwrap().state,
+            AgentState::Input
+        );
     }
 }
