@@ -46,8 +46,16 @@ fn start_mcp_server() {
                 eprintln!("failed to watch source folder: {err}");
             }
 
+            let agent_store = if settings.restore_layout_on_launch {
+                skwad_agents::AgentStore::from_saved(
+                    &settings.saved_agents,
+                    settings.saved_workspaces.clone(),
+                )
+            } else {
+                skwad_agents::AgentStore::new()
+            };
             let catalog = Arc::new(skwad_mcp_tools::McpToolCatalog::new(
-                skwad_agents::AgentStore::new(),
+                agent_store,
                 repos_rx,
                 Arc::new(skwad_messaging::NoopNotifier),
             ));

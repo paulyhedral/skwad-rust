@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use skwad_core::{BenchAgent, Workspace};
+use skwad_core::{BenchAgent, SavedAgent, Workspace};
 use uuid::Uuid;
 
 use crate::agent::{Agent, AgentState};
+use crate::convert::from_saved;
 use crate::error::{AgentError, Result};
 
 const DEFAULT_WORKSPACE_NAME: &str = "Skwad";
@@ -59,6 +60,24 @@ pub struct AgentStore {
 impl AgentStore {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn from_saved(saved_agents: &[SavedAgent], workspaces: Vec<Workspace>) -> Self {
+        let agents = saved_agents.iter().map(from_saved).collect::<Vec<_>>();
+        let workspaces = if agents.is_empty() || !workspaces.is_empty() {
+            workspaces
+        } else {
+            vec![default_workspace(
+                agents.iter().map(|agent| agent.id).collect(),
+            )]
+        };
+        let current_workspace_id = workspaces.first().map(|workspace| workspace.id);
+
+        Self {
+            agents,
+            workspaces,
+            current_workspace_id,
+        }
     }
 
     pub fn agents(&self) -> &[Agent] {
@@ -132,19 +151,7 @@ impl AgentStore {
         {
             return id;
         }
-        let workspace = Workspace {
-            id: Uuid::new_v4(),
-            name: DEFAULT_WORKSPACE_NAME.to_string(),
-            color_hex: DEFAULT_WORKSPACE_COLOR.to_string(),
-            agent_ids: Vec::new(),
-            layout_mode: "single".to_string(),
-            active_agent_ids: Vec::new(),
-            focused_pane_index: 0,
-            split_ratio: 0.5,
-            split_ratio_secondary: None,
-            show_dashboard: None,
-            is_detached: None,
-        };
+        let workspace = default_workspace(Vec::new());
         let id = workspace.id;
         self.workspaces.push(workspace);
         self.current_workspace_id = Some(id);
@@ -483,6 +490,22 @@ impl AgentStore {
     }
 }
 
+fn default_workspace(agent_ids: Vec<Uuid>) -> Workspace {
+    Workspace {
+        id: Uuid::new_v4(),
+        name: DEFAULT_WORKSPACE_NAME.to_string(),
+        color_hex: DEFAULT_WORKSPACE_COLOR.to_string(),
+        active_agent_ids: agent_ids.first().copied().into_iter().collect(),
+        agent_ids,
+        layout_mode: "single".to_string(),
+        focused_pane_index: 0,
+        split_ratio: 0.5,
+        split_ratio_secondary: None,
+        show_dashboard: None,
+        is_detached: None,
+    }
+}
+
 fn last_path_component(folder: &str) -> String {
     Path::new(folder)
         .file_name()
@@ -496,6 +519,49 @@ mod tests {
 
     fn store() -> AgentStore {
         AgentStore::new()
+    }
+
+    #[test]
+    fn restores_agents_and_workspaces_with_runtime_defaults() {
+        let agent_id = Uuid::new_v4();
+        let workspace_id = Uuid::new_v4();
+        let saved = SavedAgent::new(agent_id, "proj", None, "/tmp/proj");
+        let workspace = Workspace {
+            id: workspace_id,
+            name: "Work".to_string(),
+            color_hex: "#123456".to_string(),
+            agent_ids: vec![agent_id],
+            layout_mode: "splitVertical".to_string(),
+            active_agent_ids: vec![agent_id],
+            focused_pane_index: 1,
+            split_ratio: 0.6,
+            split_ratio_secondary: Some(0.4),
+            show_dashboard: Some(false),
+            is_detached: Some(true),
+        };
+
+        let store = AgentStore::from_saved(&[saved], vec![workspace.clone()]);
+
+        assert_eq!(store.current_workspace_id(), Some(workspace_id));
+        assert_eq!(store.workspaces(), &[workspace]);
+        let agent = store.agent(agent_id).unwrap();
+        assert_eq!(agent.name, "proj");
+        assert_eq!(agent.state, AgentState::Idle);
+        assert!(!agent.is_registered);
+        assert!(agent.session_id.is_none());
+        assert!(agent.metadata.is_empty());
+    }
+
+    #[test]
+    fn restores_agents_into_default_workspace_when_layout_is_missing() {
+        let agent_id = Uuid::new_v4();
+        let saved = SavedAgent::new(agent_id, "proj", None, "/tmp/proj");
+
+        let store = AgentStore::from_saved(&[saved], Vec::new());
+
+        assert_eq!(store.workspaces().len(), 1);
+        assert_eq!(store.workspaces()[0].agent_ids, vec![agent_id]);
+        assert_eq!(store.workspaces()[0].active_agent_ids, vec![agent_id]);
     }
 
     #[test]
