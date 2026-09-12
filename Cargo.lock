@@ -6726,6 +6726,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "skwad-terminal"
+version = "0.1.0"
+dependencies = [
+ "skwad-activity",
+ "skwad-agent-launch",
+ "skwad-agents",
+ "skwad-core",
+ "thiserror 2.0.20",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "skwad-watch"
 version = "0.1.0"
 dependencies = [
