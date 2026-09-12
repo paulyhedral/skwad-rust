@@ -6,6 +6,8 @@
 
 use std::path::Path;
 
+mod pty;
+
 use skwad_activity::{EventSink, KeyEvent, Tracker, TrackerConfig, tracking_for};
 use skwad_agent_launch::{
     LaunchRequest, build_agent_command, build_initialization_command, supports_inline_registration,
@@ -13,6 +15,8 @@ use skwad_agent_launch::{
 use skwad_agents::Agent;
 use skwad_core::{Persona, Settings};
 use thiserror::Error;
+
+pub use pty::PtyTransport;
 
 #[derive(Debug, Error)]
 pub enum TerminalError {
