@@ -158,6 +158,9 @@ pub fn create_agent(
     }
 
     let companion = optional_bool(arguments, "companion").unwrap_or(false);
+    if companion && fields.agent_type.as_deref() != Some("shell") {
+        return ToolCallResult::error("Companion agents must use agentType=shell");
+    }
     let repo_path = fields.repo_path.unwrap();
     let folder = if create_worktree {
         match crate::repos::create_worktree_path(&repo_path, branch_name.unwrap()) {
@@ -372,6 +375,27 @@ mod tests {
 
         assert_eq!(result.is_error, Some(true));
         assert!(result.content[0].text.contains("branchName"));
+    }
+
+    #[test]
+    fn companion_requires_shell_agent_type() {
+        let mut store = AgentStore::new();
+        let caller = store.create("/tmp/caller", CreateOptions::default());
+
+        let result = create_agent(
+            &mut store,
+            &json!({
+                "agentId": caller.to_string(),
+                "name": "companion",
+                "agentType": "claude",
+                "repoPath": "/tmp/companion",
+                "companion": true,
+            }),
+            &[],
+        );
+
+        assert_eq!(result.is_error, Some(true));
+        assert!(result.content[0].text.contains("agentType=shell"));
     }
 
     #[test]
