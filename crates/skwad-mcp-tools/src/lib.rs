@@ -14,12 +14,17 @@ mod responses;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use skwad_agents::AgentStore;
+use skwad_agents::{AgentState, AgentStore};
 use skwad_core::BenchAgent;
 use skwad_discovery::RepoInfo;
-use skwad_mcp::{PropertySchema, ToolCallResult, ToolCatalog, ToolDefinition, ToolInputSchema};
+use skwad_mcp::{
+    AgentHookHandler, HookRequest, HookStatus, PropertySchema, ToolCallResult, ToolCatalog,
+    ToolDefinition, ToolInputSchema, claude_status, codex_turn_complete, extract_metadata,
+};
 use skwad_messaging::{DeliveryNotifier, MessageStore};
 use tokio::sync::watch;
+
+use crate::lookup::state_string;
 
 /// The concrete `ToolCatalog` for the thirteen tools in
 /// `openspec/specs/mcp-tools/spec.md`. Holds every piece of shared state a
@@ -59,6 +64,83 @@ impl McpToolCatalog {
     /// `AgentsSnapshotFn` (the `GET /api/v1/agent/status` endpoint).
     pub fn agents_snapshot(&self) -> Vec<skwad_agents::Agent> {
         self.agents.lock().unwrap().agents().to_vec()
+    }
+}
+
+impl AgentHookHandler for McpToolCatalog {
+    fn register(&self, request: &HookRequest) -> Result<serde_json::Value, skwad_mcp::HookError> {
+        if request.agent != "claude" {
+            return Err(skwad_mcp::HookError::UnknownAgent(request.agent.clone()));
+        }
+        let id = request.agent_id()?;
+        let mut agents = self.agents.lock().unwrap();
+        let Some(agent) = agents.agent(id) else {
+            return Err(skwad_mcp::HookError::InvalidPayload(
+                "Agent not found".to_string(),
+            ));
+        };
+        let is_resuming = agent.resume_session_id.is_some() && !agent.fork_session;
+        let is_fork = agent.fork_session;
+        let source = request.source.as_deref().unwrap_or("startup");
+        agents.set_registered(id, true);
+        agents.update_metadata(id, extract_metadata("claude", &request.payload));
+        if source == "resume" {
+            if !is_fork && let Some(session_id) = request.session_id.clone() {
+                agents.set_session_id(id, session_id);
+            }
+        } else {
+            if !is_resuming && let Some(session_id) = request.session_id.clone() {
+                agents.set_session_id(id, session_id);
+            }
+        }
+        Ok(serde_json::json!({
+            "success": true,
+            "message": "Registered",
+            "unreadMessageCount": 0,
+            "skwadMembers": agents.agents().iter().map(|agent| serde_json::json!({
+                "id": agent.id.to_string(),
+                "name": agent.name,
+                "folder": agent.folder,
+                "status": state_string(agent.state),
+                "isRegistered": agent.is_registered,
+            })).collect::<Vec<_>>(),
+        }))
+    }
+
+    fn status(&self, request: &HookRequest) -> Result<serde_json::Value, skwad_mcp::HookError> {
+        let id = request.agent_id()?;
+        let mut agents = self.agents.lock().unwrap();
+        if agents.agent(id).is_none() {
+            return Err(skwad_mcp::HookError::InvalidPayload(
+                "Agent not found".to_string(),
+            ));
+        }
+        agents.update_metadata(id, extract_metadata(&request.agent, &request.payload));
+        let status = match request.agent.as_str() {
+            "claude" => claude_status(
+                request
+                    .status
+                    .as_deref()
+                    .ok_or_else(|| skwad_mcp::HookError::InvalidStatus("missing".to_string()))?,
+            )?,
+            "codex" => {
+                let thread_id = codex_turn_complete(&request.payload)?;
+                if let Some(thread_id) = thread_id {
+                    agents.set_session_id(id, thread_id);
+                }
+                HookStatus::Idle
+            }
+            agent => return Err(skwad_mcp::HookError::UnknownAgent(agent.to_string())),
+        };
+        agents.set_state(
+            id,
+            match status {
+                HookStatus::Working => AgentState::Running,
+                HookStatus::Idle => AgentState::Idle,
+                HookStatus::AwaitingInput => AgentState::Input,
+            },
+        );
+        Ok(serde_json::json!({"success": true}))
     }
 }
 
@@ -396,5 +478,51 @@ mod tests {
 
         assert_eq!(result.is_error, None);
         assert!(cat.agents.lock().unwrap().agent(id).unwrap().is_registered);
+    }
+
+    #[test]
+    fn hook_registration_updates_session_and_metadata() {
+        let cat = catalog();
+        let id = cat
+            .agents
+            .lock()
+            .unwrap()
+            .create("/tmp/a", skwad_agents::CreateOptions::default());
+        let request: HookRequest = serde_json::from_value(serde_json::json!({
+            "agent_id": id,
+            "session_id": "session-1",
+            "payload": {"cwd": "/tmp/a", "model": "claude-sonnet"}
+        }))
+        .unwrap();
+
+        cat.register(&request).unwrap();
+        let agent = cat.agents.lock().unwrap().agent(id).unwrap().clone();
+        assert!(agent.is_registered);
+        assert_eq!(agent.session_id.as_deref(), Some("session-1"));
+        assert_eq!(
+            agent.metadata.get("model"),
+            Some(&"claude-sonnet".to_string())
+        );
+    }
+
+    #[test]
+    fn hook_status_updates_state_and_codex_session() {
+        let cat = catalog();
+        let id = cat
+            .agents
+            .lock()
+            .unwrap()
+            .create("/tmp/a", skwad_agents::CreateOptions::default());
+        let request: HookRequest = serde_json::from_value(serde_json::json!({
+            "agent_id": id,
+            "agent": "codex",
+            "payload": {"type": "agent-turn-complete", "thread-id": "thread-1"}
+        }))
+        .unwrap();
+
+        cat.status(&request).unwrap();
+        let agent = cat.agents.lock().unwrap().agent(id).unwrap().clone();
+        assert_eq!(agent.state, AgentState::Idle);
+        assert_eq!(agent.session_id.as_deref(), Some("thread-1"));
     }
 }

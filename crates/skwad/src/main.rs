@@ -57,11 +57,13 @@ fn start_mcp_server() {
                 let catalog = catalog.clone();
                 Arc::new(move || catalog.agents_snapshot())
             };
+            let hook_handler = catalog.clone();
             let mut server = skwad_mcp::McpServer::new(
                 settings.mcp_server_port,
                 catalog as Arc<dyn ToolCatalog>,
                 agents_snapshot,
-            );
+            )
+            .with_hook_handler(hook_handler);
             if let Err(err) = server.start().await {
                 eprintln!("failed to start MCP server: {err}");
                 return;

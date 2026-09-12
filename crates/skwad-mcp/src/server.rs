@@ -11,6 +11,7 @@ use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 use crate::consts;
+use crate::hooks::{AgentHookHandler, HookRequest};
 use crate::rpc::{self, JsonRpcId, JsonRpcRequest, JsonRpcResponse};
 use crate::status::{self, AgentStatusEntry};
 use crate::tools::ToolCatalog;
@@ -24,6 +25,7 @@ pub type AgentsSnapshotFn = Arc<dyn Fn() -> Vec<skwad_agents::Agent> + Send + Sy
 struct AppState {
     catalog: Arc<dyn ToolCatalog>,
     agents: AgentsSnapshotFn,
+    hooks: Option<Arc<dyn AgentHookHandler>>,
 }
 
 /// The local MCP HTTP server: health/info, JSON-RPC `/mcp`, SSE `/mcp`, and
@@ -39,10 +41,19 @@ impl McpServer {
     pub fn new(port: u16, catalog: Arc<dyn ToolCatalog>, agents: AgentsSnapshotFn) -> Self {
         Self {
             port,
-            state: AppState { catalog, agents },
+            state: AppState {
+                catalog,
+                agents,
+                hooks: None,
+            },
             handle: None,
             bound_addr: None,
         }
+    }
+
+    pub fn with_hook_handler(mut self, handler: Arc<dyn AgentHookHandler>) -> Self {
+        self.state.hooks = Some(handler);
+        self
     }
 
     pub fn with_default_port(catalog: Arc<dyn ToolCatalog>, agents: AgentsSnapshotFn) -> Self {
@@ -85,7 +96,11 @@ fn build_router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/", get(info))
         .route("/mcp", post(mcp_rpc).get(mcp_sse))
-        .route("/api/v1/agent/status", get(agent_status_endpoint))
+        .route(
+            "/api/v1/agent/status",
+            get(agent_status_endpoint).post(agent_status_hook_endpoint),
+        )
+        .route("/api/v1/agent/register", post(agent_register_endpoint))
         .with_state(state)
 }
 
@@ -104,6 +119,49 @@ async fn info() -> Response {
 async fn agent_status_endpoint(State(state): State<AppState>) -> axum::Json<Vec<AgentStatusEntry>> {
     let agents = (state.agents)();
     axum::Json(status::agent_status(&agents))
+}
+
+async fn agent_register_endpoint(State(state): State<AppState>, body: Bytes) -> Response {
+    hook_response(state.hooks.as_deref(), &body, HookAction::Register)
+}
+
+async fn agent_status_hook_endpoint(State(state): State<AppState>, body: Bytes) -> Response {
+    hook_response(state.hooks.as_deref(), &body, HookAction::Status)
+}
+
+enum HookAction {
+    Register,
+    Status,
+}
+
+fn hook_response(
+    handler: Option<&dyn AgentHookHandler>,
+    body: &[u8],
+    action: HookAction,
+) -> Response {
+    let request: HookRequest = match serde_json::from_slice(body) {
+        Ok(request) => request,
+        Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    };
+    if let Err(error) = request.agent_id().and(request.validate_agent()) {
+        return (StatusCode::BAD_REQUEST, error.to_string()).into_response();
+    }
+
+    let Some(handler) = handler else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Agent hooks are not configured",
+        )
+            .into_response();
+    };
+    let result = match action {
+        HookAction::Register => handler.register(&request),
+        HookAction::Status => handler.status(&request),
+    };
+    match result {
+        Ok(value) => axum::Json(value).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
 }
 
 fn sse_response(event: &str, data: &str, session_id: Option<&str>) -> Response {

@@ -22,6 +22,12 @@ pub struct HookRequest {
     pub payload: Value,
 }
 
+pub trait AgentHookHandler: Send + Sync {
+    fn register(&self, request: &HookRequest) -> Result<Value, HookError>;
+
+    fn status(&self, request: &HookRequest) -> Result<Value, HookError>;
+}
+
 impl HookRequest {
     pub fn agent_id(&self) -> Result<Uuid, HookError> {
         Uuid::parse_str(&self.agent_id).map_err(|_| HookError::InvalidAgentId)
