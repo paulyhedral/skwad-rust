@@ -159,9 +159,17 @@ pub fn create_agent(
 
     let companion = optional_bool(arguments, "companion").unwrap_or(false);
     let repo_path = fields.repo_path.unwrap();
+    let folder = if create_worktree {
+        match crate::repos::create_worktree_path(&repo_path, branch_name.unwrap()) {
+            Ok(path) => path.to_string_lossy().into_owned(),
+            Err(error) => return ToolCallResult::error(error),
+        }
+    } else {
+        repo_path
+    };
 
     let id = store.create(
-        repo_path,
+        folder,
         CreateOptions {
             name: fields.name,
             avatar: fields.icon,
@@ -240,7 +248,10 @@ pub fn set_status(store: &mut AgentStore, arguments: &serde_json::Value) -> Tool
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use serde_json::json;
+    use skwad_git::Runner;
 
     use super::*;
 
@@ -361,6 +372,40 @@ mod tests {
 
         assert_eq!(result.is_error, Some(true));
         assert!(result.content[0].text.contains("branchName"));
+    }
+
+    #[test]
+    fn create_agent_uses_new_worktree_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        let run = |args: &[&str]| Runner::new(&repo).run(args).unwrap();
+        run(&["init", "-q", "-b", "main"]);
+        run(&["config", "user.email", "test@example.com"]);
+        run(&["config", "user.name", "Test"]);
+        std::fs::write(repo.join("seed.txt"), "seed\n").unwrap();
+        run(&["add", "-A"]);
+        run(&["commit", "-qm", "init"]);
+
+        let mut store = AgentStore::new();
+        let caller = store.create("/tmp/caller", CreateOptions::default());
+        let result = create_agent(
+            &mut store,
+            &json!({
+                "agentId": caller.to_string(),
+                "name": "worker",
+                "agentType": "claude",
+                "repoPath": repo,
+                "createWorktree": true,
+                "branchName": "feature/worker",
+            }),
+            &[],
+        );
+
+        assert_eq!(result.is_error, None);
+        let created = store.agents().iter().find(|a| a.name == "worker").unwrap();
+        assert_ne!(created.folder, repo.to_string_lossy());
+        assert!(Path::new(&created.folder).is_dir());
     }
 
     #[test]
