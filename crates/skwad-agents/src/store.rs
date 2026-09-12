@@ -92,6 +92,18 @@ impl AgentStore {
         }
     }
 
+    pub fn set_state(&mut self, id: Uuid, state: AgentState) {
+        if let Some(agent) = self.agent_mut(id) {
+            agent.state = state;
+        }
+    }
+
+    pub fn update_metadata(&mut self, id: Uuid, metadata: BTreeMap<String, String>) {
+        if let Some(agent) = self.agent_mut(id) {
+            agent.metadata.extend(metadata);
+        }
+    }
+
     /// Sets the agent-facing status text (`set-status`'s target); distinct
     /// from `AgentState`, the automatic state machine.
     pub fn set_status_text(&mut self, id: Uuid, status: String) {

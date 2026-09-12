@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use skwad_agents::{Agent, AgentState};
 use skwad_mcp::{
-    DEFAULT_PORT, EmptyCatalog, McpServer, ToolCallResult, ToolCatalog, ToolDefinition,
-    ToolInputSchema,
+    AgentHookHandler, DEFAULT_PORT, EmptyCatalog, HookRequest, McpServer, ToolCallResult,
+    ToolCatalog, ToolDefinition, ToolInputSchema,
 };
 use uuid::Uuid;
 
@@ -177,6 +177,55 @@ async fn status_endpoint_reflects_live_agents() {
     assert_eq!(entries.len(), 2);
     let registered_entry = entries.iter().find(|e| e["name"] == "one").unwrap();
     assert_eq!(registered_entry["session_id"], "sess-42");
+
+    server.stop();
+}
+
+struct HookRecorder;
+
+impl AgentHookHandler for HookRecorder {
+    fn register(&self, _request: &HookRequest) -> Result<Value, skwad_mcp::HookError> {
+        Ok(json!({"success": true, "message": "Registered"}))
+    }
+
+    fn status(&self, _request: &HookRequest) -> Result<Value, skwad_mcp::HookError> {
+        Ok(json!({"success": true}))
+    }
+}
+
+#[tokio::test]
+async fn hook_routes_validate_and_dispatch_requests() {
+    let mut server = McpServer::new(0, Arc::new(EmptyCatalog), no_agents())
+        .with_hook_handler(Arc::new(HookRecorder));
+    server.start().await.unwrap();
+    let base = format!("http://{}", server.bound_addr().unwrap());
+    let client = reqwest::Client::new();
+    let agent_id = Uuid::new_v4();
+
+    let register = client
+        .post(format!("{base}/api/v1/agent/register"))
+        .json(&json!({"agent_id": agent_id}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(register.status(), 200);
+    assert_eq!(register.json::<Value>().await.unwrap()["success"], true);
+
+    let status = client
+        .post(format!("{base}/api/v1/agent/status"))
+        .json(&json!({"agent_id": agent_id, "status": "running"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(status.status(), 200);
+
+    let invalid = client
+        .post(format!("{base}/api/v1/agent/status"))
+        .json(&json!({"agent_id": "bad"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), 400);
 
     server.stop();
 }

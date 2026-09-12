@@ -14,8 +14,8 @@ mod tools;
 pub use consts::DEFAULT_PORT;
 pub use error::{McpError, Result};
 pub use hooks::{
-    HookError, HookRequest, HookStatus, claude_status, codex_turn_complete, extract_metadata,
-    last_assistant_message_from_transcript,
+    AgentHookHandler, HookError, HookRequest, HookStatus, claude_status, codex_turn_complete,
+    extract_metadata, last_assistant_message_from_transcript,
 };
 pub use rpc::{JsonRpcError, JsonRpcId, JsonRpcRequest, JsonRpcResponse, dispatch};
 pub use server::{AgentsSnapshotFn, McpServer};
