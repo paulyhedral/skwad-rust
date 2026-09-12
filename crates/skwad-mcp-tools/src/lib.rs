@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use skwad_agents::{AgentState, AgentStore};
 use skwad_core::BenchAgent;
+use skwad_core::Settings;
 use skwad_discovery::RepoInfo;
 use skwad_mcp::{
     AgentHookHandler, HookRequest, HookStatus, PropertySchema, ToolCallResult, ToolCatalog,
@@ -35,6 +36,7 @@ pub struct McpToolCatalog {
     notifier: Arc<dyn DeliveryNotifier + Send + Sync>,
     repos: watch::Receiver<Vec<RepoInfo>>,
     bench_agents: Mutex<Vec<BenchAgent>>,
+    settings: Mutex<Option<Settings>>,
 }
 
 impl McpToolCatalog {
@@ -49,6 +51,7 @@ impl McpToolCatalog {
             notifier,
             repos,
             bench_agents: Mutex::new(Vec::new()),
+            settings: Mutex::new(None),
         }
     }
 
@@ -65,6 +68,34 @@ impl McpToolCatalog {
     pub fn agents_snapshot(&self) -> Vec<skwad_agents::Agent> {
         self.agents.lock().unwrap().agents().to_vec()
     }
+
+    pub fn with_settings(self, settings: Settings) -> Self {
+        *self.settings.lock().unwrap() = Some(settings);
+        self
+    }
+
+    fn persist_agent_state(&self) -> Result<(), String> {
+        let agents = self.agents.lock().unwrap();
+        let mut settings = self.settings.lock().unwrap();
+        let Some(settings) = settings.as_mut() else {
+            return Ok(());
+        };
+        settings.saved_agents = agents.saved_agents();
+        settings.saved_workspaces = agents.saved_workspaces();
+        settings.persist().map_err(|error| error.to_string())
+    }
+}
+
+fn mutates_agent_state(name: &str) -> bool {
+    matches!(
+        name,
+        consts::REGISTER_AGENT
+            | consts::CREATE_AGENT
+            | consts::CLOSE_AGENT
+            | consts::SET_STATUS
+            | consts::DISPLAY_MARKDOWN
+            | consts::VIEW_MERMAID
+    )
 }
 
 impl AgentHookHandler for McpToolCatalog {
@@ -367,7 +398,7 @@ impl ToolCatalog for McpToolCatalog {
     }
 
     async fn call(&self, name: &str, arguments: serde_json::Value) -> ToolCallResult {
-        match name {
+        let result = match name {
             consts::REGISTER_AGENT => {
                 agents::register_agent(&mut self.agents.lock().unwrap(), &arguments)
             }
@@ -408,13 +439,21 @@ impl ToolCatalog for McpToolCatalog {
                 panels::view_mermaid(&mut self.agents.lock().unwrap(), &arguments)
             }
             other => ToolCallResult::error(format!("unknown tool: {other}")),
+        };
+        if result.is_error.is_none()
+            && mutates_agent_state(name)
+            && let Err(error) = self.persist_agent_state()
+        {
+            return ToolCallResult::error(format!("Failed to persist agent state: {error}"));
         }
+        result
     }
 }
 
 #[cfg(test)]
 mod tests {
     use skwad_messaging::NoopNotifier;
+    use tempfile::tempdir;
 
     use super::*;
 
@@ -478,6 +517,32 @@ mod tests {
 
         assert_eq!(result.is_error, None);
         assert!(cat.agents.lock().unwrap().agent(id).unwrap().is_registered);
+    }
+
+    #[tokio::test]
+    async fn successful_agent_mutation_persists_durable_state() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let cat = catalog().with_settings(skwad_core::Settings::with_store_path(&path));
+        let id = cat
+            .agents
+            .lock()
+            .unwrap()
+            .create("/tmp/persisted", skwad_agents::CreateOptions::default());
+
+        let result = cat
+            .call(
+                consts::REGISTER_AGENT,
+                serde_json::json!({"agentId": id.to_string()}),
+            )
+            .await;
+
+        assert!(result.is_error.is_none());
+        let settings = skwad_core::Settings::load_from(path).unwrap();
+        assert_eq!(settings.saved_agents.len(), 1);
+        assert_eq!(settings.saved_agents[0].id, id);
+        assert_eq!(settings.saved_workspaces.len(), 1);
+        assert_eq!(settings.saved_workspaces[0].agent_ids, vec![id]);
     }
 
     #[test]

@@ -84,8 +84,16 @@ impl AgentStore {
         &self.agents
     }
 
+    pub fn saved_agents(&self) -> Vec<SavedAgent> {
+        self.agents.iter().map(crate::convert::to_saved).collect()
+    }
+
     pub fn workspaces(&self) -> &[Workspace] {
         &self.workspaces
+    }
+
+    pub fn saved_workspaces(&self) -> Vec<Workspace> {
+        self.workspaces.clone()
     }
 
     pub fn agent(&self, id: Uuid) -> Option<&Agent> {

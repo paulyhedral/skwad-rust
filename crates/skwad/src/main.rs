@@ -54,11 +54,14 @@ fn start_mcp_server() {
             } else {
                 skwad_agents::AgentStore::new()
             };
-            let catalog = Arc::new(skwad_mcp_tools::McpToolCatalog::new(
-                agent_store,
-                repos_rx,
-                Arc::new(skwad_messaging::NoopNotifier),
-            ));
+            let catalog = Arc::new(
+                skwad_mcp_tools::McpToolCatalog::new(
+                    agent_store,
+                    repos_rx,
+                    Arc::new(skwad_messaging::NoopNotifier),
+                )
+                .with_settings(settings.clone()),
+            );
             catalog.set_bench_agents(settings.bench_agents.clone());
 
             let agents_snapshot: skwad_mcp::AgentsSnapshotFn = {
