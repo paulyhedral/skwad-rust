@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::path::PathBuf;
 
 use skwad_discovery::RepoInfo;
 use skwad_git::{Repository, worktree::is_working_tree};
@@ -66,15 +67,9 @@ pub fn create_worktree(arguments: &serde_json::Value) -> ToolCallResult {
         _ => return ToolCallResult::error("Missing required parameter: branchName"),
     };
 
-    let repo_path_ref = Path::new(repo_path);
-    if !is_working_tree(repo_path_ref) {
-        return ToolCallResult::error(format!("Not a git repository: {repo_path}"));
-    }
-
-    let destination = skwad_git::suggest_worktree_path(repo_path_ref, branch_name);
-    match Repository::open(repo_path_ref).create_worktree(branch_name, &destination) {
-        Ok(()) => {
-            let path = destination.display().to_string();
+    match create_worktree_path(repo_path, branch_name) {
+        Ok(path) => {
+            let path = path.display().to_string();
             success(&CreateWorktreeResponse {
                 success: true,
                 path: Some(path.clone()),
@@ -83,6 +78,19 @@ pub fn create_worktree(arguments: &serde_json::Value) -> ToolCallResult {
         }
         Err(err) => ToolCallResult::error(format!("Failed to create worktree: {err}")),
     }
+}
+
+pub fn create_worktree_path(repo_path: &str, branch_name: &str) -> Result<PathBuf, String> {
+    let repo_path_ref = Path::new(repo_path);
+    if !is_working_tree(repo_path_ref) {
+        return Err(format!("Not a git repository: {repo_path}"));
+    }
+
+    let destination = skwad_git::suggest_worktree_path(repo_path_ref, branch_name);
+    Repository::open(repo_path_ref)
+        .create_worktree(branch_name, &destination)
+        .map(|()| destination)
+        .map_err(|error| format!("Failed to create worktree: {error}"))
 }
 
 #[cfg(test)]
