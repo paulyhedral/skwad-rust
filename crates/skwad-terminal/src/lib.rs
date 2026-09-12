@@ -5,6 +5,7 @@
 //! lifecycle behavior.
 
 use std::path::Path;
+use std::sync::Arc;
 
 mod pty;
 
@@ -70,14 +71,14 @@ impl SessionPlan {
 
 pub struct TerminalSession<T> {
     transport: T,
-    tracker: Tracker,
+    tracker: Arc<Tracker>,
     started: bool,
 }
 
 impl<T: TerminalTransport> TerminalSession<T> {
     pub fn new(config: &SessionConfig<'_>, transport: T, sink: EventSink) -> Self {
         let is_hook_based = matches!(config.agent.agent_type.as_str(), "claude" | "codex");
-        let tracker = Tracker::spawn(
+        let tracker = Arc::new(Tracker::spawn(
             TrackerConfig {
                 agent_type: config.agent.agent_type.clone(),
                 is_hook_based,
@@ -87,12 +88,50 @@ impl<T: TerminalTransport> TerminalSession<T> {
             },
             tracking_for(&config.agent.agent_type),
             sink,
-        );
+        ));
         Self {
             transport,
             tracker,
             started: false,
         }
+    }
+
+    pub fn spawn_pty<Output>(
+        config: &SessionConfig<'_>,
+        sink: EventSink,
+        on_output: Output,
+    ) -> Result<TerminalSession<PtyTransport>>
+    where
+        Output: Fn(&[u8]) + Send + Sync + 'static,
+    {
+        let tracker = Arc::new(Tracker::spawn(
+            TrackerConfig {
+                agent_type: config.agent.agent_type.clone(),
+                is_hook_based: matches!(config.agent.agent_type.as_str(), "claude" | "codex"),
+                mcp_enabled: config.settings.mcp_server_enabled,
+                inline_registration: supports_inline_registration(&config.agent.agent_type),
+                ..TrackerConfig::default()
+            },
+            tracking_for(&config.agent.agent_type),
+            sink,
+        ));
+        let output_tracker = Arc::clone(&tracker);
+        let exit_tracker = Arc::clone(&tracker);
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        let transport = PtyTransport::spawn(
+            &config.agent.folder,
+            shell,
+            move |bytes| {
+                output_tracker.on_terminal_activity();
+                on_output(bytes);
+            },
+            move |status| exit_tracker.on_process_exit(status),
+        )?;
+        Ok(TerminalSession {
+            transport,
+            tracker,
+            started: false,
+        })
     }
 
     pub fn start(&mut self, plan: &SessionPlan) -> Result<()> {
@@ -233,5 +272,49 @@ mod tests {
         assert!(statuses.iter().any(|(state, source)| {
             *state == AgentState::Running && *source == ActivitySource::Terminal
         }));
+    }
+
+    #[tokio::test]
+    async fn pty_session_forwards_raw_output_to_the_caller() {
+        let folder = tempfile::tempdir().unwrap();
+        let mut agent = agent();
+        agent.folder = folder.path().to_string_lossy().into_owned();
+        let settings = Settings::default();
+        let config = SessionConfig {
+            settings: &settings,
+            agent: &agent,
+            persona: None,
+            plugin_root: None,
+        };
+        let (output_tx, output_rx) = std::sync::mpsc::channel();
+        let mut session = TerminalSession::<PtyTransport>::spawn_pty(
+            &config,
+            EventSink::default(),
+            move |bytes| {
+                let _ = output_tx.send(bytes.to_vec());
+            },
+        )
+        .unwrap();
+
+        session
+            .start(&SessionPlan {
+                agent_command: String::new(),
+                initialization_command: "printf ready; exit 0\n".to_string(),
+            })
+            .unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut output = Vec::new();
+        while std::time::Instant::now() < deadline {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if let Ok(bytes) = output_rx.recv_timeout(remaining) {
+                output.extend(bytes);
+                if String::from_utf8_lossy(&output).contains("ready") {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        assert!(String::from_utf8_lossy(&output).contains("ready"));
     }
 }
