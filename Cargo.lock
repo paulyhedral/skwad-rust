@@ -6606,6 +6606,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "skwad-activity"
+version = "0.1.0"
+dependencies = [
+ "skwad-agents",
+ "thiserror 2.0.20",
+ "tokio",
+]
+
+[[package]]
 name = "skwad-agent-launch"
 version = "0.1.0"
 dependencies = [
