@@ -14,6 +14,7 @@ use gpui_kit::{
 };
 use skwad_activity::EventSink;
 use skwad_mcp::ToolCatalog;
+use skwad_messaging::{DeliveryEvent, QueuedNotifier};
 use skwad_terminal::{PtyTransport, SessionConfig, SessionPlan, TerminalSession};
 use uuid::Uuid;
 
@@ -201,6 +202,28 @@ struct AgentStatusKey {
     is_registered: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DeliveryNotice {
+    recipient_name: String,
+    count: usize,
+}
+
+fn delivery_notice(
+    events: &[DeliveryEvent],
+    agents: &[skwad_agents::Agent],
+) -> Option<DeliveryNotice> {
+    let event = events.last()?;
+    let agent = agents.iter().find(|agent| agent.id == event.agent_id)?;
+    let count = events
+        .iter()
+        .filter(|event| event.agent_id == agent.id)
+        .count();
+    Some(DeliveryNotice {
+        recipient_name: agent.name.clone(),
+        count,
+    })
+}
+
 fn agent_status_snapshot(store: &skwad_agents::AgentStore) -> Vec<AgentStatusKey> {
     store
         .agents()
@@ -222,6 +245,8 @@ struct Shell {
     sessions: BTreeMap<Uuid, Arc<Mutex<TerminalSession<PtyTransport>>>>,
     command_input: Entity<InputState>,
     input_subscription: Option<Subscription>,
+    notifier: Arc<QueuedNotifier>,
+    delivery_notice: Option<DeliveryNotice>,
     /// The terminal/tracker background tasks (`TerminalSession::spawn_pty`
     /// calls `tokio::spawn`) need a runtime, but the UI thread only carries
     /// gpui's own executor. `attach_session` enters this one around each
@@ -390,6 +415,12 @@ impl Render for Shell {
                         div().children(lines)
                     })
                     .child(command_input)
+                    .children(self.delivery_notice.as_ref().map(|notice| {
+                        div().child(format!(
+                            "New MCP message delivered to {} ({})",
+                            notice.recipient_name, notice.count
+                        ))
+                    }))
             }
             None => v_flex()
                 .size_full()
@@ -417,9 +448,9 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
         if weak.upgrade().is_none() {
             break;
         }
-        let changed = cx.update(|app| {
+        let (changed, notice) = cx.update(|app| {
             let Some(entity) = weak.upgrade() else {
-                return false;
+                return (false, None);
             };
             let mut changed = false;
             for id in entity.read(app).sessions.keys() {
@@ -434,17 +465,28 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
                     seen.insert(*id, len);
                 }
             }
-            let status = agent_status_snapshot(&entity.read(app).store.lock().unwrap());
+            let (status, agents) = {
+                let store = entity.read(app).store.lock().unwrap();
+                (agent_status_snapshot(&store), store.agents().to_vec())
+            };
             if last_status.as_ref() != Some(&status) {
                 changed = true;
                 last_status = Some(status);
             }
-            changed
+            let events = entity.read(app).notifier.drain();
+            let notice = delivery_notice(&events, &agents);
+            changed |= notice.is_some();
+            (changed, notice)
         });
         if changed {
             cx.update(|app| {
                 if let Some(entity) = weak.upgrade() {
-                    entity.update(app, |_, cx| cx.notify());
+                    entity.update(app, |shell, cx| {
+                        if let Some(notice) = notice {
+                            shell.delivery_notice = Some(notice);
+                        }
+                        cx.notify();
+                    });
                 }
             });
         }
@@ -459,7 +501,11 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
 /// The catalog holds the same store the shell renders, so `register-agent`,
 /// `set-status`, `create-agent` and hook-driven state changes appear in the UI
 /// within one poll tick.
-fn start_mcp_server(agents: Arc<Mutex<skwad_agents::AgentStore>>, settings: skwad_core::Settings) {
+fn start_mcp_server(
+    agents: Arc<Mutex<skwad_agents::AgentStore>>,
+    settings: skwad_core::Settings,
+    notifier: Arc<QueuedNotifier>,
+) {
     std::thread::spawn(move || {
         let runtime = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
@@ -482,12 +528,8 @@ fn start_mcp_server(agents: Arc<Mutex<skwad_agents::AgentStore>>, settings: skwa
             }
 
             let catalog = Arc::new(
-                skwad_mcp_tools::McpToolCatalog::new(
-                    agents,
-                    repos_rx,
-                    Arc::new(skwad_messaging::NoopNotifier),
-                )
-                .with_settings(settings.clone()),
+                skwad_mcp_tools::McpToolCatalog::new(agents, repos_rx, notifier)
+                    .with_settings(settings.clone()),
             );
             catalog.set_bench_agents(settings.bench_agents.clone());
 
@@ -519,7 +561,8 @@ fn start_mcp_server(agents: Arc<Mutex<skwad_agents::AgentStore>>, settings: skwa
 fn main() {
     let settings = skwad_core::Settings::load().unwrap_or_default();
     let store = Arc::new(Mutex::new(build_agent_store(&settings)));
-    start_mcp_server(Arc::clone(&store), settings.clone());
+    let notifier = Arc::new(QueuedNotifier::new());
+    start_mcp_server(Arc::clone(&store), settings.clone(), Arc::clone(&notifier));
 
     gpui_kit::application().run(move |cx| {
         gpui_kit::init(cx);
@@ -546,6 +589,8 @@ fn main() {
                     sessions: BTreeMap::new(),
                     command_input: command_input.clone(),
                     input_subscription: None,
+                    notifier: Arc::clone(&notifier),
+                    delivery_notice: None,
                     runtime,
                 });
                 let subscription_target = view.downgrade();
@@ -797,6 +842,47 @@ mod tests {
     fn command_to_send_trims_input_and_rejects_empty_commands() {
         assert_eq!(command_to_send("  cargo test  "), Some("cargo test"));
         assert_eq!(command_to_send("\t\n"), None);
+    }
+
+    #[test]
+    fn delivery_notice_names_the_last_known_recipient_and_counts_events() {
+        let mut store = skwad_agents::AgentStore::new();
+        let first = store.create("~/first", skwad_agents::CreateOptions::default());
+        let second = store.create("~/second", skwad_agents::CreateOptions::default());
+        let events = vec![
+            DeliveryEvent {
+                agent_id: first,
+                message_id: Uuid::new_v4(),
+            },
+            DeliveryEvent {
+                agent_id: second,
+                message_id: Uuid::new_v4(),
+            },
+            DeliveryEvent {
+                agent_id: second,
+                message_id: Uuid::new_v4(),
+            },
+        ];
+
+        assert_eq!(
+            delivery_notice(&events, store.agents()),
+            Some(DeliveryNotice {
+                recipient_name: "second".to_string(),
+                count: 2,
+            })
+        );
+        assert_eq!(delivery_notice(&[], store.agents()), None);
+    }
+
+    #[test]
+    fn delivery_notice_ignores_unknown_recipients() {
+        let store = skwad_agents::AgentStore::new();
+        let events = [DeliveryEvent {
+            agent_id: Uuid::new_v4(),
+            message_id: Uuid::new_v4(),
+        }];
+
+        assert_eq!(delivery_notice(&events, store.agents()), None);
     }
 
     #[test]

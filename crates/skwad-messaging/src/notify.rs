@@ -11,6 +11,36 @@ pub trait DeliveryNotifier {
     fn notify(&self, agent_id: Uuid, message_id: Uuid);
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeliveryEvent {
+    pub agent_id: Uuid,
+    pub message_id: Uuid,
+}
+
+#[derive(Debug, Default)]
+pub struct QueuedNotifier {
+    events: Mutex<Vec<DeliveryEvent>>,
+}
+
+impl QueuedNotifier {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn drain(&self) -> Vec<DeliveryEvent> {
+        std::mem::take(&mut *self.events.lock().unwrap())
+    }
+}
+
+impl DeliveryNotifier for QueuedNotifier {
+    fn notify(&self, agent_id: Uuid, message_id: Uuid) {
+        self.events.lock().unwrap().push(DeliveryEvent {
+            agent_id,
+            message_id,
+        });
+    }
+}
+
 /// Records every call for assertions in tests.
 #[derive(Debug, Default)]
 pub struct RecordingNotifier {
@@ -54,5 +84,23 @@ mod tests {
         notifier.notify(agent, message);
 
         assert_eq!(notifier.calls(), vec![(agent, message)]);
+    }
+
+    #[test]
+    fn queued_notifier_drains_events() {
+        let notifier = QueuedNotifier::new();
+        let agent = Uuid::new_v4();
+        let message = Uuid::new_v4();
+
+        notifier.notify(agent, message);
+
+        assert_eq!(
+            notifier.drain(),
+            vec![DeliveryEvent {
+                agent_id: agent,
+                message_id: message,
+            }]
+        );
+        assert!(notifier.drain().is_empty());
     }
 }

@@ -15,6 +15,8 @@ mod store;
 pub use consts::READ_RETENTION_LIMIT;
 pub use error::{Result, SendError};
 pub use message::Message;
-pub use notify::{DeliveryNotifier, NoopNotifier, RecordingNotifier};
+pub use notify::{
+    DeliveryEvent, DeliveryNotifier, NoopNotifier, QueuedNotifier, RecordingNotifier,
+};
 pub use routing::{broadcast, check, send};
 pub use store::MessageStore;
