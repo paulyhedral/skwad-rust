@@ -5,13 +5,14 @@
 //! lifecycle behavior.
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 mod pty;
 
 use skwad_activity::{EventSink, KeyEvent, Tracker, TrackerConfig, tracking_for};
 use skwad_agent_launch::{
-    LaunchRequest, build_agent_command, build_initialization_command, supports_inline_registration,
+    LaunchRequest, build_agent_command, build_initialization_command, registration_prompt,
+    supports_inline_registration,
 };
 use skwad_agents::Agent;
 use skwad_core::{Persona, Settings};
@@ -70,25 +71,15 @@ impl SessionPlan {
 }
 
 pub struct TerminalSession<T> {
-    transport: T,
+    transport: Arc<Mutex<T>>,
     tracker: Arc<Tracker>,
     started: bool,
 }
 
-impl<T: TerminalTransport> TerminalSession<T> {
+impl<T: TerminalTransport + 'static> TerminalSession<T> {
     pub fn new(config: &SessionConfig<'_>, transport: T, sink: EventSink) -> Self {
-        let is_hook_based = matches!(config.agent.agent_type.as_str(), "claude" | "codex");
-        let tracker = Arc::new(Tracker::spawn(
-            TrackerConfig {
-                agent_type: config.agent.agent_type.clone(),
-                is_hook_based,
-                mcp_enabled: config.settings.mcp_server_enabled,
-                inline_registration: supports_inline_registration(&config.agent.agent_type),
-                ..TrackerConfig::default()
-            },
-            tracking_for(&config.agent.agent_type),
-            sink,
-        ));
+        let transport = Arc::new(Mutex::new(transport));
+        let tracker = make_tracker(config, Arc::clone(&transport), sink);
         Self {
             transport,
             tracker,
@@ -104,29 +95,32 @@ impl<T: TerminalTransport> TerminalSession<T> {
     where
         Output: Fn(&[u8]) + Send + Sync + 'static,
     {
-        let tracker = Arc::new(Tracker::spawn(
-            TrackerConfig {
-                agent_type: config.agent.agent_type.clone(),
-                is_hook_based: matches!(config.agent.agent_type.as_str(), "claude" | "codex"),
-                mcp_enabled: config.settings.mcp_server_enabled,
-                inline_registration: supports_inline_registration(&config.agent.agent_type),
-                ..TrackerConfig::default()
-            },
-            tracking_for(&config.agent.agent_type),
-            sink,
-        ));
-        let output_tracker = Arc::clone(&tracker);
-        let exit_tracker = Arc::clone(&tracker);
+        let tracker_slot: Arc<Mutex<Option<Arc<Tracker>>>> = Arc::new(Mutex::new(None));
+        let output_tracker = Arc::clone(&tracker_slot);
+        let exit_tracker = Arc::clone(&tracker_slot);
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
         let transport = PtyTransport::spawn(
             &config.agent.folder,
             shell,
             move |bytes| {
-                output_tracker.on_terminal_activity();
+                if let Ok(tracker) = output_tracker.lock()
+                    && let Some(tracker) = tracker.as_ref()
+                {
+                    tracker.on_terminal_activity();
+                }
                 on_output(bytes);
             },
-            move |status| exit_tracker.on_process_exit(status),
+            move |status| {
+                if let Ok(tracker) = exit_tracker.lock()
+                    && let Some(tracker) = tracker.as_ref()
+                {
+                    tracker.on_process_exit(status);
+                }
+            },
         )?;
+        let transport = Arc::new(Mutex::new(transport));
+        let tracker = make_tracker(config, Arc::clone(&transport), sink);
+        *tracker_slot.lock().unwrap() = Some(Arc::clone(&tracker));
         Ok(TerminalSession {
             transport,
             tracker,
@@ -135,19 +129,28 @@ impl<T: TerminalTransport> TerminalSession<T> {
     }
 
     pub fn start(&mut self, plan: &SessionPlan) -> Result<()> {
-        self.transport.send_text(&plan.initialization_command)?;
-        self.transport.send_return()?;
+        self.send_text(&plan.initialization_command)?;
+        self.transport
+            .lock()
+            .map_err(|_| TerminalError::Transport("transport lock poisoned".to_string()))?
+            .send_return()?;
         self.started = true;
         Ok(())
     }
 
     pub fn send_text(&mut self, text: &str) -> Result<()> {
-        self.transport.send_text(text)
+        self.transport
+            .lock()
+            .map_err(|_| TerminalError::Transport("transport lock poisoned".to_string()))?
+            .send_text(text)
     }
 
     pub fn send_command(&mut self, text: &str) -> Result<()> {
-        self.transport.send_text(text)?;
-        self.transport.send_return()
+        self.send_text(text)?;
+        self.transport
+            .lock()
+            .map_err(|_| TerminalError::Transport("transport lock poisoned".to_string()))?
+            .send_return()
     }
 
     pub fn on_terminal_output(&self) {
@@ -164,7 +167,10 @@ impl<T: TerminalTransport> TerminalSession<T> {
 
     pub fn shutdown(&mut self) -> Result<()> {
         self.tracker.shutdown();
-        self.transport.terminate()?;
+        self.transport
+            .lock()
+            .map_err(|_| TerminalError::Transport("transport lock poisoned".to_string()))?
+            .terminate()?;
         self.started = false;
         Ok(())
     }
@@ -172,6 +178,39 @@ impl<T: TerminalTransport> TerminalSession<T> {
     pub fn is_started(&self) -> bool {
         self.started
     }
+}
+
+fn make_tracker<T: TerminalTransport + 'static>(
+    config: &SessionConfig<'_>,
+    transport: Arc<Mutex<T>>,
+    mut sink: EventSink,
+) -> Arc<Tracker> {
+    let mut caller_inject = sink.on_inject_registration.take();
+    sink.on_inject_registration = Some(Box::new(move |prompt| {
+        if let Ok(mut transport) = transport.lock() {
+            let _ = transport.send_text(&prompt);
+            let _ = transport.send_return();
+        }
+        if let Some(caller_inject) = caller_inject.as_mut() {
+            caller_inject(prompt);
+        }
+    }));
+    let tracker = Arc::new(Tracker::spawn(
+        TrackerConfig {
+            agent_type: config.agent.agent_type.clone(),
+            is_hook_based: matches!(config.agent.agent_type.as_str(), "claude" | "codex"),
+            mcp_enabled: config.settings.mcp_server_enabled,
+            inline_registration: supports_inline_registration(&config.agent.agent_type),
+            ..TrackerConfig::default()
+        },
+        tracking_for(&config.agent.agent_type),
+        sink,
+    ));
+    if config.settings.mcp_server_enabled && !supports_inline_registration(&config.agent.agent_type)
+    {
+        tracker.set_registration_prompt(registration_prompt(config.agent.id));
+    }
+    tracker
 }
 
 #[cfg(test)]

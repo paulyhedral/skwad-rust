@@ -409,7 +409,15 @@ mod tests {
         run(&["config", "user.name", "Test"]);
         std::fs::write(repo.join("seed.txt"), "seed\n").unwrap();
         run(&["add", "-A"]);
-        run(&["commit", "-qm", "init"]);
+        run(&[
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "gpg.format=openpgp",
+            "commit",
+            "-qm",
+            "init",
+        ]);
 
         let mut store = AgentStore::new();
         let caller = store.create("/tmp/caller", CreateOptions::default());
