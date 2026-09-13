@@ -15,4 +15,5 @@ skwad-messaging = { path = "../skwad-messaging" }
 skwad-mcp = { path = "../skwad-mcp" }
 skwad-mcp-tools = { path = "../skwad-mcp-tools" }
 tokio.workspace = true
+uuid.workspace = true
 gpui-kit = "0.6"

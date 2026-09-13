@@ -6669,6 +6669,7 @@ dependencies = [
  "skwad-mcp-tools",
  "skwad-messaging",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
