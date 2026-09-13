@@ -5,11 +5,42 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 use skwad_mcp::ToolCatalog;
 
-struct Shell;
+struct Shell {
+    store: skwad_agents::AgentStore,
+}
 
 impl Render for Shell {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div().size_full()
+        let workspace_names = self
+            .store
+            .workspaces()
+            .iter()
+            .map(|workspace| div().child(workspace.name.clone()))
+            .collect::<Vec<_>>();
+        let workspace_agents = self
+            .store
+            .workspaces()
+            .iter()
+            .map(|workspace| {
+                let rows = workspace
+                    .agent_ids
+                    .iter()
+                    .filter_map(|id| self.store.agent(*id))
+                    .map(|agent| {
+                        div().child(format!(
+                            "{} {} [{}] {}",
+                            agent.avatar, agent.name, agent.agent_type, agent.folder
+                        ))
+                    })
+                    .collect::<Vec<_>>();
+                div().child(workspace.name.clone()).children(rows)
+            })
+            .collect::<Vec<_>>();
+
+        h_flex()
+            .size_full()
+            .child(v_flex().size_full().children(workspace_names))
+            .child(v_flex().size_full().children(workspace_agents))
     }
 }
 
@@ -92,12 +123,24 @@ fn start_mcp_server() {
 fn main() {
     start_mcp_server();
 
+    let settings = skwad_core::Settings::load().unwrap_or_default();
+    let store = if settings.restore_layout_on_launch {
+        skwad_agents::AgentStore::from_saved(
+            &settings.saved_agents,
+            settings.saved_workspaces.clone(),
+        )
+    } else {
+        skwad_agents::AgentStore::new()
+    };
+
     gpui_kit::application().run(move |cx| {
         gpui_kit::init(cx);
 
         cx.spawn(async move |cx| {
             cx.open_window(WindowOptions::default(), |window, cx| {
-                let view = cx.new(|_| Shell);
+                let view = cx.new(|_| Shell {
+                    store: store.clone(),
+                });
                 cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
             })
             .expect("failed to open window");
