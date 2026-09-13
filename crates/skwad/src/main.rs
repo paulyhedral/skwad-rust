@@ -20,6 +20,7 @@ use uuid::Uuid;
 
 const MAX_VISIBLE_LINES: usize = 200;
 const OUTPUT_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const CHECK_INBOX_PROMPT: &str = "Check your inbox for questions or instructions from other agents. Update your status and immediately execute what is being asked without confirmation.";
 
 /// Captured bytes streamed out of a live terminal session. Rendered lazily.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -261,6 +262,17 @@ fn apply_terminal_status(
     }
 }
 
+fn should_inject_inbox_prompt(
+    agent_type: &str,
+    mcp_enabled: bool,
+    latest_message: Option<Uuid>,
+    last_injected: Option<Uuid>,
+) -> bool {
+    mcp_enabled
+        && agent_type != "shell"
+        && latest_message.is_some_and(|message_id| Some(message_id) != last_injected)
+}
+
 struct Shell {
     store: Arc<Mutex<skwad_agents::AgentStore>>,
     settings: skwad_core::Settings,
@@ -272,6 +284,7 @@ struct Shell {
     notifier: Arc<QueuedNotifier>,
     delivery_notice: Option<DeliveryNotice>,
     messages: Arc<Mutex<skwad_messaging::MessageStore>>,
+    check_requests: Arc<Mutex<Vec<Uuid>>>,
     /// The terminal/tracker background tasks (`TerminalSession::spawn_pty`
     /// calls `tokio::spawn`) need a runtime, but the UI thread only carries
     /// gpui's own executor. `attach_session` enters this one around each
@@ -309,6 +322,14 @@ impl Shell {
             on_status: Some(Box::new(move |event| {
                 apply_terminal_status(&status_store, id, event.status);
             })),
+            on_check_messages: {
+                let requests = Arc::clone(&self.check_requests);
+                Some(Box::new(move || {
+                    if let Ok(mut requests) = requests.lock() {
+                        requests.push(id);
+                    }
+                }))
+            },
             ..Default::default()
         };
 
@@ -485,6 +506,7 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
     let mut seen = BTreeMap::<Uuid, usize>::new();
     let mut last_status: Option<Vec<AgentStatusKey>> = None;
     let mut last_unread: Option<BTreeMap<Uuid, usize>> = None;
+    let mut last_injected_message = BTreeMap::<Uuid, Uuid>::new();
     loop {
         cx.background_executor().timer(OUTPUT_POLL_INTERVAL).await;
         if weak.upgrade().is_none() {
@@ -527,6 +549,41 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
             let events = entity.read(app).notifier.drain();
             let notice = delivery_notice(&events, &agents);
             changed |= notice.is_some();
+            let requests = entity
+                .read(app)
+                .check_requests
+                .lock()
+                .unwrap()
+                .drain(..)
+                .collect::<Vec<_>>();
+            for id in requests {
+                let Some((agent_type, latest_message)) = (|| {
+                    let store = entity.read(app).store.lock().unwrap();
+                    let messages = entity.read(app).messages.lock().unwrap();
+                    let agent_type = store.agent(id)?.agent_type.clone();
+                    Some((agent_type, messages.latest_unread_id(id)))
+                })() else {
+                    continue;
+                };
+                if !should_inject_inbox_prompt(
+                    &agent_type,
+                    entity.read(app).settings.mcp_server_enabled,
+                    latest_message,
+                    last_injected_message.get(&id).copied(),
+                ) {
+                    continue;
+                }
+                let Some(session) = entity.read(app).sessions.get(&id) else {
+                    continue;
+                };
+                if let Ok(mut session) = session.lock()
+                    && session.send_command(CHECK_INBOX_PROMPT).is_ok()
+                    && let Some(message_id) = latest_message
+                {
+                    last_injected_message.insert(id, message_id);
+                    changed = true;
+                }
+            }
             (changed, notice)
         });
         if changed {
@@ -651,6 +708,7 @@ fn main() {
                     notifier: Arc::clone(&notifier),
                     delivery_notice: None,
                     messages: Arc::clone(&messages),
+                    check_requests: Arc::new(Mutex::new(Vec::new())),
                     runtime,
                 });
                 let subscription_target = view.downgrade();
@@ -988,6 +1046,37 @@ mod tests {
             shared.lock().unwrap().agent(id).unwrap().state,
             skwad_agents::AgentState::Running
         );
+    }
+
+    #[test]
+    fn inbox_prompt_requires_new_unread_message_for_non_shell_mcp_agent() {
+        let message = Uuid::new_v4();
+
+        assert!(should_inject_inbox_prompt(
+            "claude",
+            true,
+            Some(message),
+            None
+        ));
+        assert!(!should_inject_inbox_prompt(
+            "claude",
+            true,
+            Some(message),
+            Some(message)
+        ));
+        assert!(!should_inject_inbox_prompt("claude", true, None, None));
+        assert!(!should_inject_inbox_prompt(
+            "shell",
+            true,
+            Some(message),
+            None
+        ));
+        assert!(!should_inject_inbox_prompt(
+            "claude",
+            false,
+            Some(message),
+            None
+        ));
     }
 
     #[test]
