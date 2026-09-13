@@ -44,13 +44,16 @@ pub struct McpToolCatalog {
 }
 
 impl McpToolCatalog {
+    /// Takes the same `Arc<Mutex<AgentStore>>` the binary's shell renders, so
+    /// MCP-driven mutations (`register-agent`, `set-status`, `create-agent`,
+    /// hooks) land in the store the UI reads.
     pub fn new(
-        agents: AgentStore,
+        agents: Arc<Mutex<AgentStore>>,
         repos: watch::Receiver<Vec<RepoInfo>>,
         notifier: Arc<dyn DeliveryNotifier + Send + Sync>,
     ) -> Self {
         Self {
-            agents: Arc::new(Mutex::new(agents)),
+            agents,
             messages: Mutex::new(MessageStore::new()),
             notifier,
             repos,
@@ -504,7 +507,11 @@ mod tests {
 
     fn catalog() -> McpToolCatalog {
         let (_tx, rx) = watch::channel(Vec::new());
-        McpToolCatalog::new(AgentStore::new(), rx, Arc::new(NoopNotifier))
+        McpToolCatalog::new(
+            Arc::new(Mutex::new(AgentStore::new())),
+            rx,
+            Arc::new(NoopNotifier),
+        )
     }
 
     #[test]
@@ -658,5 +665,29 @@ mod tests {
             cat.agents.lock().unwrap().agent(id).unwrap().state,
             AgentState::Input
         );
+    }
+
+    #[test]
+    fn catalogs_sharing_a_store_observe_each_others_mutations() {
+        let (_tx, rx_a) = watch::channel(Vec::new());
+        let (_tx, rx_b) = watch::channel(Vec::new());
+        let shared = Arc::new(Mutex::new(AgentStore::new()));
+        let a = McpToolCatalog::new(Arc::clone(&shared), rx_a, Arc::new(NoopNotifier));
+        let b = McpToolCatalog::new(Arc::clone(&shared), rx_b, Arc::new(NoopNotifier));
+
+        let id = shared
+            .lock()
+            .unwrap()
+            .create("/tmp/one", skwad_agents::CreateOptions::default());
+
+        assert_eq!(a.agents_snapshot().len(), 1);
+        assert_eq!(b.agents_snapshot().len(), 1);
+
+        shared
+            .lock()
+            .unwrap()
+            .set_status_text(id, "planning".to_string());
+        assert_eq!(a.agents_snapshot()[0].status_text, "planning");
+        assert_eq!(b.agents_snapshot()[0].status_text, "planning");
     }
 }
