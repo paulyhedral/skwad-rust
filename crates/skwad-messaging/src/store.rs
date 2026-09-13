@@ -26,6 +26,13 @@ impl MessageStore {
             .collect()
     }
 
+    pub fn unread_count(&self, agent_id: Uuid) -> usize {
+        self.messages
+            .iter()
+            .filter(|message| message.to == agent_id && !message.is_read)
+            .count()
+    }
+
     pub fn mark_read(&mut self, agent_id: Uuid) {
         for m in self.messages.iter_mut().filter(|m| m.to == agent_id) {
             m.is_read = true;
@@ -94,6 +101,20 @@ mod tests {
         assert!(store.has_unread(agent));
         store.mark_read(agent);
         assert!(!store.has_unread(agent));
+    }
+
+    #[test]
+    fn unread_count_tracks_only_unread_messages_for_recipient() {
+        let mut store = MessageStore::new();
+        let agent = Uuid::new_v4();
+        let other = Uuid::new_v4();
+        store.add(msg(agent));
+        store.add(msg(agent));
+        store.add(msg(other));
+
+        assert_eq!(store.unread_count(agent), 2);
+        store.mark_read(agent);
+        assert_eq!(store.unread_count(agent), 0);
     }
 
     #[test]

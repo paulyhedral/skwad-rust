@@ -35,7 +35,7 @@ use crate::lookup::state_string;
 /// handler needs; each `call` locks only what that tool touches.
 pub struct McpToolCatalog {
     agents: Arc<Mutex<AgentStore>>,
-    messages: Mutex<MessageStore>,
+    messages: Arc<Mutex<MessageStore>>,
     notifier: Arc<dyn DeliveryNotifier + Send + Sync>,
     repos: watch::Receiver<Vec<RepoInfo>>,
     bench_agents: Mutex<Vec<BenchAgent>>,
@@ -54,13 +54,18 @@ impl McpToolCatalog {
     ) -> Self {
         Self {
             agents,
-            messages: Mutex::new(MessageStore::new()),
+            messages: Arc::new(Mutex::new(MessageStore::new())),
             notifier,
             repos,
             bench_agents: Mutex::new(Vec::new()),
             settings: Mutex::new(None),
             trackers: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub fn with_message_store(mut self, messages: Arc<Mutex<MessageStore>>) -> Self {
+        self.messages = messages;
+        self
     }
 
     /// Refreshes the bench-agent templates `create-agent`'s `benchAgentId`
