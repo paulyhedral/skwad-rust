@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -6,11 +8,12 @@ use std::time::Duration;
 use gpui_kit::base::Selectable;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::Button;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::*;
 use gpui_kit::{
-    AppContext, AsyncApp, ClickEvent, Context, Entity, IntoElement, ParentElement, Render, Styled,
-    Subscription, WeakEntity, Window, WindowOptions, div,
+    App, AppContext, AsyncApp, ClickEvent, Context, Entity, IntoElement, Menu, MenuItem,
+    ParentElement, Render, Styled, Subscription, WeakEntity, Window, WindowBounds, WindowOptions,
+    actions, div, px, size,
 };
 use skwad_activity::EventSink;
 use skwad_mcp::ToolCatalog;
@@ -594,7 +597,8 @@ impl Shell {
     fn open_workspace_manager(&self, cx: &mut Context<Self>) {
         let store = Arc::clone(&self.store);
         let settings = self.settings.clone();
-        cx.open_window(WindowOptions::default(), move |window, cx| {
+        let options = manager_window_options(cx);
+        cx.open_window(options, move |window, cx| {
             let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Workspace name"));
             let view = cx.new(|_| WorkspaceManager {
                 store,
@@ -602,6 +606,7 @@ impl Shell {
                 name_input,
                 editing_id: None,
                 error: None,
+                _mcp_stop: None,
             });
             cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
         })
@@ -720,12 +725,262 @@ impl Shell {
     }
 }
 
+fn manager_window_options(cx: &App) -> WindowOptions {
+    WindowOptions {
+        window_bounds: Some(WindowBounds::centered(size(px(800.), px(600.)), cx)),
+        window_min_size: Some(size(px(640.), px(420.))),
+        ..WindowOptions::default()
+    }
+}
+
+fn workspace_window_options(cx: &App) -> WindowOptions {
+    WindowOptions {
+        window_bounds: Some(WindowBounds::centered(size(px(960.), px(640.)), cx)),
+        window_min_size: Some(size(px(760.), px(520.))),
+        ..WindowOptions::default()
+    }
+}
+
+struct WorkspaceWindow {
+    store: Arc<Mutex<skwad_agents::AgentStore>>,
+    settings: skwad_core::Settings,
+    workspace_id: Uuid,
+    selected_agent: Option<Uuid>,
+    new_agent_name_input: Entity<InputState>,
+    new_agent_folder_input: Entity<InputState>,
+    show_new_agent: bool,
+    error: Option<String>,
+}
+
+impl WorkspaceWindow {
+    fn open(
+        store: Arc<Mutex<skwad_agents::AgentStore>>,
+        settings: skwad_core::Settings,
+        workspace_id: Uuid,
+        cx: &mut Context<WorkspaceManager>,
+    ) {
+        let options = workspace_window_options(cx);
+        if let Err(error) = cx.open_window(options, move |window, cx| {
+            let new_agent_name_input =
+                cx.new(|cx| InputState::new(window, cx).placeholder("Agent name (optional)"));
+            let new_agent_folder_input =
+                cx.new(|cx| InputState::new(window, cx).placeholder("Agent folder path"));
+            let selected_agent = store
+                .lock()
+                .ok()
+                .and_then(|store| agent_selection_for_workspace(&store, workspace_id));
+            let view = cx.new(|_| WorkspaceWindow {
+                store,
+                settings,
+                workspace_id,
+                selected_agent,
+                new_agent_name_input,
+                new_agent_folder_input,
+                show_new_agent: false,
+                error: None,
+            });
+            cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
+        }) {
+            eprintln!("failed to open workspace window: {error}");
+        }
+    }
+
+    fn create_agent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let folder = self
+            .new_agent_folder_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        if folder.is_empty() || !PathBuf::from(&folder).is_dir() {
+            self.error = Some("Choose an existing agent folder.".to_string());
+            cx.notify();
+            return;
+        }
+        let name = self
+            .new_agent_name_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        let id = {
+            let mut store = self.store.lock().unwrap();
+            store.set_current_workspace(self.workspace_id);
+            store.create(
+                folder,
+                skwad_agents::CreateOptions {
+                    name: (!name.is_empty()).then_some(name),
+                    ..Default::default()
+                },
+            )
+        };
+        if let Ok(store) = self.store.lock() {
+            self.settings.saved_agents = store.saved_agents();
+            self.settings.saved_workspaces = store.saved_workspaces();
+        }
+        let _ = self.settings.persist();
+        self.selected_agent = Some(id);
+        self.show_new_agent = false;
+        self.error = None;
+        cx.update_entity(&self.new_agent_name_input, |input, input_cx| {
+            input.clean(window, input_cx);
+        });
+        cx.update_entity(&self.new_agent_folder_input, |input, input_cx| {
+            input.clean(window, input_cx);
+        });
+        cx.notify();
+    }
+}
+
+impl Render for WorkspaceWindow {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let (workspace_name, agents) = {
+            let store = self.store.lock().unwrap();
+            let Some(workspace) = store
+                .workspaces()
+                .iter()
+                .find(|workspace| workspace.id == self.workspace_id)
+            else {
+                return v_flex().size_full().child("Workspace no longer exists.");
+            };
+            let agents = workspace
+                .agent_ids
+                .iter()
+                .filter_map(|id| store.agent(*id))
+                .map(|agent| {
+                    (
+                        agent.id,
+                        agent.avatar.clone(),
+                        agent.name.clone(),
+                        agent.folder.clone(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            (workspace.name.clone(), agents)
+        };
+
+        let agent_rows = agents.into_iter().map(|(id, avatar, name, folder)| {
+            Button::new(format!("workspace-agent-{id}"))
+                .label(format!("{avatar}  {name}\n{folder}"))
+                .selected(self.selected_agent == Some(id))
+                .on_click(cx.listener(move |view, _: &ClickEvent, _window, cx| {
+                    view.selected_agent = Some(id);
+                    cx.notify();
+                }))
+        });
+
+        let selected_title = self
+            .selected_agent
+            .and_then(|id| {
+                self.store.lock().ok().and_then(|store| {
+                    store
+                        .agent(id)
+                        .map(|agent| agent.header_title().to_string())
+                })
+            })
+            .unwrap_or_else(|| "Choose an agent from the sidebar".to_string());
+
+        let new_agent_form = if self.show_new_agent {
+            v_flex()
+                .gap_2()
+                .child(Input::new(&self.new_agent_folder_input).h_full())
+                .child(Input::new(&self.new_agent_name_input).h_full())
+                .child(
+                    Button::new("create-workspace-agent")
+                        .label("Create")
+                        .on_click(cx.listener(|view, _: &ClickEvent, window, cx| {
+                            view.create_agent(window, cx);
+                        })),
+                )
+        } else {
+            v_flex()
+        };
+
+        h_flex()
+            .size_full()
+            .bg(cx.theme().background)
+            .child(
+                v_flex()
+                    .w(px(250.))
+                    .h_full()
+                    .gap_2()
+                    .p_4()
+                    .bg(cx.theme().muted)
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(div().text_lg().child(workspace_name.clone()))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("Workspace"),
+                            ),
+                    )
+                    .child(
+                        Button::new("workspace-new-agent")
+                            .label("+  New Agent")
+                            .on_click(cx.listener(|view, _: &ClickEvent, _window, cx| {
+                                view.show_new_agent = true;
+                                view.error = None;
+                                cx.notify();
+                            })),
+                    )
+                    .child(new_agent_form)
+                    .children(
+                        self.error
+                            .as_ref()
+                            .map(|error| div().text_sm().child(error.clone())),
+                    )
+                    .children(agent_rows),
+            )
+            .child(
+                v_flex()
+                    .flex_1()
+                    .child(
+                        h_flex()
+                            .h(px(56.))
+                            .px_5()
+                            .items_center()
+                            .border_b_1()
+                            .border_color(cx.theme().border)
+                            .child(
+                                v_flex()
+                                    .gap_1()
+                                    .child(div().text_lg().child(selected_title))
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child("Terminal"),
+                                    ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .size_full()
+                            .p_6()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(cx.theme().muted)
+                            .child(
+                                div()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("Terminal display will appear here"),
+                            ),
+                    ),
+            )
+    }
+}
+
 struct WorkspaceManager {
     store: Arc<Mutex<skwad_agents::AgentStore>>,
     settings: skwad_core::Settings,
     name_input: Entity<InputState>,
     editing_id: Option<Uuid>,
     error: Option<String>,
+    _mcp_stop: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 impl WorkspaceManager {
@@ -809,16 +1064,35 @@ impl Render for WorkspaceManager {
         let rows = workspaces.into_iter().map(|workspace| {
             let id = workspace.id;
             h_flex()
+                .w_full()
+                .items_center()
+                .gap_3()
+                .p_3()
+                .rounded(cx.theme().radius)
+                .bg(cx.theme().muted)
                 .child(
                     Button::new(format!("select-managed-workspace-{id}"))
                         .label(format!(
-                            "{} ({} agents)",
+                            "{}  {} agents",
                             workspace.name,
                             workspace.agent_ids.len()
                         ))
+                        .flex_1()
                         .on_click(cx.listener(move |manager, _: &ClickEvent, _window, cx| {
                             manager.store.lock().unwrap().set_current_workspace(id);
                             cx.notify();
+                        })),
+                )
+                .child(
+                    Button::new(format!("open-workspace-{id}"))
+                        .label("Open")
+                        .on_click(cx.listener(move |manager, _: &ClickEvent, _window, cx| {
+                            WorkspaceWindow::open(
+                                Arc::clone(&manager.store),
+                                manager.settings.clone(),
+                                id,
+                                cx,
+                            );
                         })),
                 )
                 .child(
@@ -836,15 +1110,42 @@ impl Render for WorkspaceManager {
         };
         v_flex()
             .size_full()
-            .child(div().child("Workspace Manager"))
-            .children(rows)
-            .child(Input::new(&self.name_input).h_full())
+            .gap_4()
+            .p_4()
+            .bg(cx.theme().background)
             .child(
-                Button::new("save-workspace")
-                    .label(form_label)
-                    .on_click(cx.listener(|manager, _: &ClickEvent, window, cx| {
-                        manager.save(window, cx);
-                    })),
+                v_flex()
+                    .gap_1()
+                    .child(div().text_2xl().child("Workspaces"))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("Create a workspace, then open it in its own window."),
+                    ),
+            )
+            .child(v_flex().gap_2().children(rows))
+            .child(
+                v_flex()
+                    .gap_2()
+                    .p_3()
+                    .rounded(cx.theme().radius)
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("New workspace"),
+                    )
+                    .child(Input::new(&self.name_input).h_full())
+                    .child(
+                        Button::new("save-workspace")
+                            .label(form_label)
+                            .on_click(cx.listener(|manager, _: &ClickEvent, window, cx| {
+                                manager.save(window, cx);
+                            })),
+                    ),
             )
             .children(self.error.as_ref().map(|error| div().child(error.clone())))
     }
@@ -1347,6 +1648,12 @@ fn start_mcp_server(
     stop
 }
 
+actions!(skwad_app, [Quit]);
+
+fn quit(_: &Quit, cx: &mut App) {
+    cx.quit();
+}
+
 fn main() {
     let mut settings = skwad_core::Settings::load().unwrap_or_default();
     if let Err(err) = settings.init_source_folder() {
@@ -1369,80 +1676,29 @@ fn main() {
 
     gpui_kit::application().run(move |cx| {
         gpui_kit::init(cx);
+        Theme::change(cx.window_appearance(), None, cx);
 
-        let runtime = match tokio::runtime::Runtime::new() {
-            Ok(runtime) => runtime,
-            Err(err) => {
-                eprintln!("failed to start tokio runtime: {err}");
-                return;
-            }
-        };
-        cx.spawn(async move |cx| {
-            cx.open_window(WindowOptions::default(), |window, cx| {
-                let command_input = cx.new(|cx| {
-                    InputState::new(window, cx)
-                        .placeholder("Run a command...")
-                        .submit_on_enter(true)
-                });
-                let new_agent_name_input =
-                    cx.new(|cx| InputState::new(window, cx).placeholder("Agent name (optional)"));
-                let new_agent_folder_input =
-                    cx.new(|cx| InputState::new(window, cx).placeholder("Agent folder path"));
-                let new_workspace_name_input =
-                    cx.new(|cx| InputState::new(window, cx).placeholder("Workspace name"));
-                let initial_selection = initial_agent_selection(&store.lock().unwrap());
-                let view = cx.new(|_| Shell {
-                    store: Arc::clone(&store),
-                    settings: settings.clone(),
-                    agent_selection: initial_selection,
-                    buffers: BTreeMap::new(),
-                    sessions: BTreeMap::new(),
-                    command_input: command_input.clone(),
-                    input_subscription: None,
-                    new_agent_name_input,
-                    new_agent_folder_input,
-                    show_new_agent: false,
-                    agent_error: None,
-                    new_workspace_name_input,
-                    show_new_workspace: false,
-                    editing_workspace_id: None,
-                    notifier: Arc::clone(&notifier),
-                    delivery_notice: None,
-                    messages: Arc::clone(&messages),
-                    check_requests: Arc::new(Mutex::new(Vec::new())),
-                    process_exits: Arc::new(Mutex::new(Vec::new())),
-                    awaiting_input: Arc::clone(&awaiting_input),
-                    mcp_stop: Some(mcp_stop),
-                    awaiting_notice: None,
-                    runtime,
-                });
-                let subscription_target = view.downgrade();
-                let subscription =
-                    window.subscribe(&command_input, cx, move |input, event, window, cx| {
-                        if !matches!(event, InputEvent::PressEnter { .. }) {
-                            return;
-                        }
-                        let command = input.read(cx).value();
-                        if let Some(view) = subscription_target.upgrade() {
-                            view.update(cx, |shell, cx| {
-                                shell.submit_command(command.as_ref(), window, cx);
-                            });
-                        }
-                    });
-                view.update(cx, |shell, _| {
-                    shell.input_subscription = Some(subscription);
-                    if let Some(id) = initial_selection {
-                        shell.attach_session(id);
-                    }
-                });
-                let weak = view.downgrade();
-                cx.spawn(async move |cx| poll_outputs(weak, cx).await)
-                    .detach();
-                cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
-            })
-            .expect("failed to open window");
+        cx.on_action(quit);
+        cx.set_menus([Menu::new("Skwad").items([
+            MenuItem::submenu(Menu::new("Window")),
+            MenuItem::separator(),
+            MenuItem::action("Quit", Quit),
+        ])]);
+
+        let options = manager_window_options(cx);
+        cx.open_window(options, |window, cx| {
+            let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Workspace name"));
+            let view = cx.new(|_| WorkspaceManager {
+                store: Arc::clone(&store),
+                settings: settings.clone(),
+                name_input,
+                editing_id: None,
+                error: None,
+                _mcp_stop: Some(mcp_stop),
+            });
+            cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
         })
-        .detach();
+        .expect("failed to open workspace manager");
     });
 }
 
