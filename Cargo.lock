@@ -6662,12 +6662,14 @@ name = "skwad"
 version = "0.1.0"
 dependencies = [
  "gpui-kit",
+ "skwad-activity",
  "skwad-agents",
  "skwad-core",
  "skwad-discovery",
  "skwad-mcp",
  "skwad-mcp-tools",
  "skwad-messaging",
+ "skwad-terminal",
  "tokio",
  "uuid",
 ]
