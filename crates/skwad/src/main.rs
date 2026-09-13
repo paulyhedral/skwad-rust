@@ -41,6 +41,18 @@ struct AgentRow {
     folder: String,
     selected: bool,
     attached: bool,
+    state: skwad_agents::AgentState,
+}
+
+/// User-facing label for the agent's automatic state-machine state, matching
+/// the Swift reference's raw strings (not the Rust enum names).
+fn state_label(state: skwad_agents::AgentState) -> &'static str {
+    match state {
+        skwad_agents::AgentState::Idle => "Idle",
+        skwad_agents::AgentState::Running => "Working",
+        skwad_agents::AgentState::Input => "Awaiting input",
+        skwad_agents::AgentState::Error => "Error",
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -82,6 +94,7 @@ fn layout_model(
                     folder: agent.folder.clone(),
                     selected: Some(agent.id) == agent_selection,
                     attached: attached_ids.contains(&agent.id),
+                    state: agent.state,
                 })
                 .collect::<Vec<_>>()
         })
@@ -306,10 +319,11 @@ impl Render for Shell {
             .map(|row| {
                 let id = row.id;
                 let label = format!(
-                    "{} {} [{}] {}{}",
+                    "{} {} [{}] [{}] {}{}",
                     row.avatar,
                     row.name,
                     row.agent_type,
+                    state_label(row.state),
                     row.folder,
                     if row.attached { " (attached)" } else { "" }
                 );
@@ -605,6 +619,7 @@ mod tests {
             .unwrap();
         assert!(alpha.selected);
         assert!(!alpha.attached);
+        assert_eq!(alpha.state, skwad_agents::AgentState::Idle);
         let beta = model
             .selected_agent_rows
             .iter()
@@ -624,12 +639,40 @@ mod tests {
     }
 
     #[test]
+    fn state_label_matches_the_swift_reference_strings() {
+        assert_eq!(state_label(skwad_agents::AgentState::Idle), "Idle");
+        assert_eq!(state_label(skwad_agents::AgentState::Running), "Working");
+        assert_eq!(
+            state_label(skwad_agents::AgentState::Input),
+            "Awaiting input"
+        );
+        assert_eq!(state_label(skwad_agents::AgentState::Error), "Error");
+    }
+
+    #[test]
+    fn layout_model_carries_agent_state_into_rows() {
+        let mut store = skwad_agents::AgentStore::new();
+        let ws = workspace("One");
+        store.add_workspace(ws.clone());
+        store.set_current_workspace(ws.id);
+        let id = store.create("~/alpha", skwad_agents::CreateOptions::default());
+        store.set_state(id, skwad_agents::AgentState::Input);
+
+        let model = layout_model(&store, None, &[]);
+        assert_eq!(
+            model.selected_agent_rows[0].state,
+            skwad_agents::AgentState::Input
+        );
+    }
+
+    #[test]
     fn terminal_model_renders_header_and_output_for_attached_agent() {
         let mut store = skwad_agents::AgentStore::new();
         let ws = workspace("One");
         store.add_workspace(ws.clone());
         store.set_current_workspace(ws.id);
         let id = store.create("~/alpha", skwad_agents::CreateOptions::default());
+        store.set_status_text(id, "planning".to_string());
         let buffer = OutputBuffer {
             bytes: b"hello\r\nworld\n".to_vec(),
         };
@@ -638,6 +681,7 @@ mod tests {
         assert!(!model.can_attach);
         let header = model.header.unwrap();
         assert_eq!(header.name, "alpha");
+        assert_eq!(header.title, "planning");
         assert_eq!(model.lines, vec!["hello", "world"]);
     }
 
