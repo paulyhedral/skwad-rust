@@ -6,10 +6,11 @@ use std::time::Duration;
 use gpui_kit::base::Selectable;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::Button;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::*;
 use gpui_kit::{
-    AppContext, AsyncApp, ClickEvent, Context, IntoElement, ParentElement, Render, Styled,
-    WeakEntity, Window, WindowOptions, div,
+    AppContext, AsyncApp, ClickEvent, Context, Entity, IntoElement, ParentElement, Render, Styled,
+    Subscription, WeakEntity, Window, WindowOptions, div,
 };
 use skwad_activity::EventSink;
 use skwad_mcp::ToolCatalog;
@@ -170,6 +171,11 @@ fn visible_output(buffer: &OutputBuffer, max_lines: usize) -> Vec<String> {
     lines
 }
 
+fn command_to_send(input: &str) -> Option<&str> {
+    let command = input.trim();
+    (!command.is_empty()).then_some(command)
+}
+
 /// Builds the agent store from persisted layout when
 /// `restore_layout_on_launch` is set, otherwise starts empty. Shared between
 /// the GPUI shell and the MCP catalog so both render the same data.
@@ -214,6 +220,8 @@ struct Shell {
     agent_selection: Option<Uuid>,
     buffers: BTreeMap<Uuid, Arc<Mutex<OutputBuffer>>>,
     sessions: BTreeMap<Uuid, Arc<Mutex<TerminalSession<PtyTransport>>>>,
+    command_input: Entity<InputState>,
+    input_subscription: Option<Subscription>,
     /// The terminal/tracker background tasks (`TerminalSession::spawn_pty`
     /// calls `tokio::spawn`) need a runtime, but the UI thread only carries
     /// gpui's own executor. `attach_session` enters this one around each
@@ -277,6 +285,31 @@ impl Shell {
             }
         }
     }
+
+    fn submit_command(&mut self, command: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.agent_selection else {
+            return;
+        };
+        let Some(session) = self.sessions.get(&id) else {
+            return;
+        };
+        let Some(command) = command_to_send(command) else {
+            return;
+        };
+
+        match session.lock() {
+            Ok(mut session) => match session.send_command(command) {
+                Ok(()) => {
+                    cx.update_entity(&self.command_input, |input, input_cx| {
+                        input.clean(window, input_cx);
+                    });
+                    cx.notify();
+                }
+                Err(err) => eprintln!("failed to send terminal command: {err}"),
+            },
+            Err(_) => eprintln!("failed to send terminal command: session lock poisoned"),
+        }
+    }
 }
 
 impl Render for Shell {
@@ -338,6 +371,7 @@ impl Render for Shell {
             })
             .collect::<Vec<_>>();
 
+        let command_input = Input::new(&self.command_input).h_full();
         let terminal_pane = match &terminal_model.header {
             Some(header) => {
                 let lines = terminal_model
@@ -355,8 +389,12 @@ impl Render for Shell {
                     } else {
                         div().children(lines)
                     })
+                    .child(command_input)
             }
-            None => div().child("Select an agent to see its terminal."),
+            None => v_flex()
+                .size_full()
+                .child(div().child("Select an agent to see its terminal."))
+                .child(command_input),
         };
 
         h_flex()
@@ -495,13 +533,36 @@ fn main() {
         };
         cx.spawn(async move |cx| {
             cx.open_window(WindowOptions::default(), |window, cx| {
+                let command_input = cx.new(|cx| {
+                    InputState::new(window, cx)
+                        .placeholder("Run a command...")
+                        .submit_on_enter(true)
+                });
                 let view = cx.new(|_| Shell {
                     store: Arc::clone(&store),
                     settings: settings.clone(),
                     agent_selection: None,
                     buffers: BTreeMap::new(),
                     sessions: BTreeMap::new(),
+                    command_input: command_input.clone(),
+                    input_subscription: None,
                     runtime,
+                });
+                let subscription_target = view.downgrade();
+                let subscription =
+                    window.subscribe(&command_input, cx, move |input, event, window, cx| {
+                        if !matches!(event, InputEvent::PressEnter { .. }) {
+                            return;
+                        }
+                        let command = input.read(cx).value();
+                        if let Some(view) = subscription_target.upgrade() {
+                            view.update(cx, |shell, cx| {
+                                shell.submit_command(command.as_ref(), window, cx);
+                            });
+                        }
+                    });
+                view.update(cx, |shell, _| {
+                    shell.input_subscription = Some(subscription);
                 });
                 let weak = view.downgrade();
                 cx.spawn(async move |cx| poll_outputs(weak, cx).await)
@@ -730,6 +791,12 @@ mod tests {
         assert_eq!(clipped.len(), 200);
         assert_eq!(clipped[0], "line 50");
         assert_eq!(clipped.last().unwrap(), "line 249");
+    }
+
+    #[test]
+    fn command_to_send_trims_input_and_rejects_empty_commands() {
+        assert_eq!(command_to_send("  cargo test  "), Some("cargo test"));
+        assert_eq!(command_to_send("\t\n"), None);
     }
 
     #[test]
