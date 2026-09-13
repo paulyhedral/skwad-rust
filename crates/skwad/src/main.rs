@@ -157,8 +157,46 @@ fn visible_output(buffer: &OutputBuffer, max_lines: usize) -> Vec<String> {
     lines
 }
 
+/// Builds the agent store from persisted layout when
+/// `restore_layout_on_launch` is set, otherwise starts empty. Shared between
+/// the GPUI shell and the MCP catalog so both render the same data.
+fn build_agent_store(settings: &skwad_core::Settings) -> skwad_agents::AgentStore {
+    if settings.restore_layout_on_launch {
+        skwad_agents::AgentStore::from_saved(
+            &settings.saved_agents,
+            settings.saved_workspaces.clone(),
+        )
+    } else {
+        skwad_agents::AgentStore::new()
+    }
+}
+
+/// The slice of an agent the shell paints. [`agent_status_snapshot`] diffs
+/// these so the poller only wakes the UI on visible changes, not on every
+/// buffer append.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AgentStatusKey {
+    id: Uuid,
+    state: skwad_agents::AgentState,
+    status_text: String,
+    is_registered: bool,
+}
+
+fn agent_status_snapshot(store: &skwad_agents::AgentStore) -> Vec<AgentStatusKey> {
+    store
+        .agents()
+        .iter()
+        .map(|agent| AgentStatusKey {
+            id: agent.id,
+            state: agent.state,
+            status_text: agent.status_text.clone(),
+            is_registered: agent.is_registered,
+        })
+        .collect()
+}
+
 struct Shell {
-    store: skwad_agents::AgentStore,
+    store: Arc<Mutex<skwad_agents::AgentStore>>,
     settings: skwad_core::Settings,
     agent_selection: Option<Uuid>,
     buffers: BTreeMap<Uuid, Arc<Mutex<OutputBuffer>>>,
@@ -173,7 +211,11 @@ impl Shell {
         if self.sessions.contains_key(&id) {
             return;
         }
-        let Some(agent) = self.store.agent(id).cloned() else {
+        let agent = {
+            let store = self.store.lock().unwrap();
+            store.agent(id).cloned()
+        };
+        let Some(agent) = agent else {
             return;
         };
         let persona = self.settings.persona(id);
@@ -217,7 +259,21 @@ impl Shell {
 impl Render for Shell {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let attached_ids = self.sessions.keys().copied().collect::<Vec<_>>();
-        let model = layout_model(&self.store, self.agent_selection, &attached_ids);
+        let (model, terminal_model) = {
+            let store = self.store.lock().unwrap();
+            let model = layout_model(&store, self.agent_selection, &attached_ids);
+            let selected_buffer = self
+                .agent_selection
+                .and_then(|id| self.buffers.get(&id))
+                .map(|buffer| buffer.lock().unwrap().clone());
+            let terminal_model = terminal_model(
+                &store,
+                self.agent_selection,
+                &attached_ids,
+                selected_buffer.as_ref(),
+            );
+            (model, terminal_model)
+        };
 
         let workspace_buttons = model
             .workspace_rows
@@ -228,7 +284,7 @@ impl Render for Shell {
                     .label(row.name)
                     .selected(row.selected)
                     .on_click(cx.listener(move |shell, _: &ClickEvent, _window, cx| {
-                        shell.store.set_current_workspace(id);
+                        shell.store.lock().unwrap().set_current_workspace(id);
                         cx.notify();
                     }))
             })
@@ -257,17 +313,6 @@ impl Render for Shell {
                     }))
             })
             .collect::<Vec<_>>();
-
-        let selected_buffer = self
-            .agent_selection
-            .and_then(|id| self.buffers.get(&id))
-            .map(|buffer| buffer.lock().unwrap().clone());
-        let terminal_model = terminal_model(
-            &self.store,
-            self.agent_selection,
-            &attached_ids,
-            selected_buffer.as_ref(),
-        );
 
         let terminal_pane = match &terminal_model.header {
             Some(header) => {
@@ -300,9 +345,11 @@ impl Render for Shell {
 
 /// Runs for the life of the app. Picks up output that the PTY read threads
 /// (raw `std::thread`s, which cannot touch gpui's non-`Send` app handle) write
-/// into shared buffers and re-renders the shell whenever a buffer grows.
+/// into shared buffers, plus MCP-driven agent changes in the shared store, and
+/// re-renders the shell when either moves.
 async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
     let mut seen = BTreeMap::<Uuid, usize>::new();
+    let mut last_status: Option<Vec<AgentStatusKey>> = None;
     loop {
         cx.background_executor().timer(OUTPUT_POLL_INTERVAL).await;
         if weak.upgrade().is_none() {
@@ -325,6 +372,11 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
                     seen.insert(*id, len);
                 }
             }
+            let status = agent_status_snapshot(&entity.read(app).store.lock().unwrap());
+            if last_status.as_ref() != Some(&status) {
+                changed = true;
+                last_status = Some(status);
+            }
             changed
         });
         if changed {
@@ -342,13 +394,11 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
 /// for the lifetime of the process - there is no shutdown path yet, matching
 /// every other still-unwired backend crate at this stage of the port.
 ///
-/// The agent store starts empty: nothing in `crates/skwad` yet restores
-/// `Settings::saved_agents`/`saved_workspaces` into a running `AgentStore`
-/// (that loader is agent-lifecycle-port's integration surface, not
-/// mcp-tools'). Repo discovery and bench-agent templates do come from real
-/// settings, since those are plain field reads with no new loader needed.
-fn start_mcp_server() {
-    std::thread::spawn(|| {
+/// The catalog holds the same store the shell renders, so `register-agent`,
+/// `set-status`, `create-agent` and hook-driven state changes appear in the UI
+/// within one poll tick.
+fn start_mcp_server(agents: Arc<Mutex<skwad_agents::AgentStore>>, settings: skwad_core::Settings) {
+    std::thread::spawn(move || {
         let runtime = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
             Err(err) => {
@@ -356,8 +406,7 @@ fn start_mcp_server() {
                 return;
             }
         };
-        runtime.block_on(async {
-            let settings = skwad_core::Settings::load().unwrap_or_default();
+        runtime.block_on(async move {
             if !settings.mcp_server_enabled {
                 return;
             }
@@ -370,17 +419,9 @@ fn start_mcp_server() {
                 eprintln!("failed to watch source folder: {err}");
             }
 
-            let agent_store = if settings.restore_layout_on_launch {
-                skwad_agents::AgentStore::from_saved(
-                    &settings.saved_agents,
-                    settings.saved_workspaces.clone(),
-                )
-            } else {
-                skwad_agents::AgentStore::new()
-            };
             let catalog = Arc::new(
                 skwad_mcp_tools::McpToolCatalog::new(
-                    agent_store,
+                    agents,
                     repos_rx,
                     Arc::new(skwad_messaging::NoopNotifier),
                 )
@@ -414,17 +455,9 @@ fn start_mcp_server() {
 }
 
 fn main() {
-    start_mcp_server();
-
     let settings = skwad_core::Settings::load().unwrap_or_default();
-    let store = if settings.restore_layout_on_launch {
-        skwad_agents::AgentStore::from_saved(
-            &settings.saved_agents,
-            settings.saved_workspaces.clone(),
-        )
-    } else {
-        skwad_agents::AgentStore::new()
-    };
+    let store = Arc::new(Mutex::new(build_agent_store(&settings)));
+    start_mcp_server(Arc::clone(&store), settings.clone());
 
     gpui_kit::application().run(move |cx| {
         gpui_kit::init(cx);
@@ -432,7 +465,7 @@ fn main() {
         cx.spawn(async move |cx| {
             cx.open_window(WindowOptions::default(), |window, cx| {
                 let view = cx.new(|_| Shell {
-                    store: store.clone(),
+                    store: Arc::clone(&store),
                     settings: settings.clone(),
                     agent_selection: None,
                     buffers: BTreeMap::new(),
@@ -635,5 +668,74 @@ mod tests {
         assert_eq!(clipped.len(), 200);
         assert_eq!(clipped[0], "line 50");
         assert_eq!(clipped.last().unwrap(), "line 249");
+    }
+
+    #[test]
+    fn agent_status_snapshot_tracks_roster_state_and_registration() {
+        let mut store = skwad_agents::AgentStore::new();
+        let ws = workspace("One");
+        store.add_workspace(ws.clone());
+        store.set_current_workspace(ws.id);
+        let id = store.create("~/alpha", skwad_agents::CreateOptions::default());
+        store.create("~/beta", skwad_agents::CreateOptions::default());
+
+        let snapshot = agent_status_snapshot(&store);
+        assert_eq!(snapshot.len(), 2);
+        assert!(
+            snapshot
+                .iter()
+                .find(|key| key.id == id)
+                .unwrap()
+                .status_text
+                .is_empty()
+        );
+
+        store.set_state(id, skwad_agents::AgentState::Running);
+        store.set_status_text(id, "planning".to_string());
+        store.set_registered(id, true);
+        let updated = agent_status_snapshot(&store);
+        assert_ne!(snapshot, updated);
+        let key = updated.iter().find(|key| key.id == id).unwrap();
+        assert_eq!(key.state, skwad_agents::AgentState::Running);
+        assert_eq!(key.status_text, "planning");
+        assert!(key.is_registered);
+        assert_eq!(
+            updated.iter().find(|key| key.id != id).unwrap().state,
+            skwad_agents::AgentState::Idle
+        );
+    }
+
+    #[test]
+    fn build_agent_store_restores_layout_when_enabled() {
+        let agent_id = Uuid::new_v4();
+        let saved = skwad_core::SavedAgent::new(agent_id, "alpha", None, "~/alpha");
+        let mut ws = workspace("Restored");
+        ws.agent_ids = vec![agent_id];
+
+        let mut settings = skwad_core::Settings::default();
+        settings.restore_layout_on_launch = true;
+        settings.saved_agents = vec![saved];
+        settings.saved_workspaces = vec![ws.clone()];
+
+        let store = build_agent_store(&settings);
+        assert_eq!(store.agents().len(), 1);
+        assert_eq!(store.workspaces(), &[ws.clone()]);
+        assert_eq!(store.current_workspace_id(), Some(ws.id));
+    }
+
+    #[test]
+    fn build_agent_store_starts_empty_when_restore_disabled() {
+        let mut settings = skwad_core::Settings::default();
+        settings.restore_layout_on_launch = false;
+        settings.saved_agents = vec![skwad_core::SavedAgent::new(
+            Uuid::new_v4(),
+            "alpha",
+            None,
+            "~/alpha",
+        )];
+
+        let store = build_agent_store(&settings);
+        assert!(store.agents().is_empty());
+        assert!(store.workspaces().is_empty());
     }
 }
