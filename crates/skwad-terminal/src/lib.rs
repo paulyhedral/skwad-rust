@@ -95,6 +95,19 @@ impl<T: TerminalTransport + 'static> TerminalSession<T> {
     where
         Output: Fn(&[u8]) + Send + Sync + 'static,
     {
+        Self::spawn_pty_with_exit(config, sink, on_output, |_| {})
+    }
+
+    pub fn spawn_pty_with_exit<Output, Exit>(
+        config: &SessionConfig<'_>,
+        sink: EventSink,
+        on_output: Output,
+        on_exit: Exit,
+    ) -> Result<TerminalSession<PtyTransport>>
+    where
+        Output: Fn(&[u8]) + Send + Sync + 'static,
+        Exit: Fn(Option<i32>) + Send + Sync + 'static,
+    {
         let tracker_slot: Arc<Mutex<Option<Arc<Tracker>>>> = Arc::new(Mutex::new(None));
         let output_tracker = Arc::clone(&tracker_slot);
         let exit_tracker = Arc::clone(&tracker_slot);
@@ -116,6 +129,7 @@ impl<T: TerminalTransport + 'static> TerminalSession<T> {
                 {
                     tracker.on_process_exit(status);
                 }
+                on_exit(status);
             },
         )?;
         let transport = Arc::new(Mutex::new(transport));
@@ -326,11 +340,15 @@ mod tests {
             plugin_root: None,
         };
         let (output_tx, output_rx) = std::sync::mpsc::channel();
-        let mut session = TerminalSession::<PtyTransport>::spawn_pty(
+        let (exit_tx, exit_rx) = std::sync::mpsc::channel();
+        let mut session = TerminalSession::<PtyTransport>::spawn_pty_with_exit(
             &config,
             EventSink::default(),
             move |bytes| {
                 let _ = output_tx.send(bytes.to_vec());
+            },
+            move |status| {
+                let _ = exit_tx.send(status);
             },
         )
         .unwrap();
@@ -355,5 +373,9 @@ mod tests {
             }
         }
         assert!(String::from_utf8_lossy(&output).contains("ready"));
+        assert_eq!(
+            exit_rx.recv_timeout(std::time::Duration::from_secs(5)),
+            Ok(Some(0))
+        );
     }
 }

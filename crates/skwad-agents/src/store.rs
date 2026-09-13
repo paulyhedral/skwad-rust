@@ -151,6 +151,18 @@ impl AgentStore {
         self.current_workspace_id = Some(id);
     }
 
+    pub fn rename_workspace(&mut self, id: Uuid, name: impl Into<String>) -> bool {
+        let Some(workspace) = self
+            .workspaces
+            .iter_mut()
+            .find(|workspace| workspace.id == id)
+        else {
+            return false;
+        };
+        workspace.name = name.into();
+        true
+    }
+
     /// The current workspace, creating the default "Skwad" workspace if none
     /// exists yet.
     fn ensure_current_workspace(&mut self) -> Uuid {

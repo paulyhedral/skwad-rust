@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -182,6 +182,14 @@ fn command_to_send(input: &str) -> Option<&str> {
     (!command.is_empty()).then_some(command)
 }
 
+fn stale_session_ids(session_ids: &[Uuid], live_ids: &BTreeSet<Uuid>) -> Vec<Uuid> {
+    session_ids
+        .iter()
+        .copied()
+        .filter(|id| !live_ids.contains(id))
+        .collect()
+}
+
 /// Builds the agent store from persisted layout when
 /// `restore_layout_on_launch` is set, otherwise starts empty. Shared between
 /// the GPUI shell and the MCP catalog so both render the same data.
@@ -194,6 +202,28 @@ fn build_agent_store(settings: &skwad_core::Settings) -> skwad_agents::AgentStor
     } else {
         skwad_agents::AgentStore::new()
     }
+}
+
+fn agent_selection_for_workspace(
+    store: &skwad_agents::AgentStore,
+    workspace_id: Uuid,
+) -> Option<Uuid> {
+    let workspace = store
+        .workspaces()
+        .iter()
+        .find(|workspace| workspace.id == workspace_id)?;
+    workspace
+        .active_agent_ids
+        .iter()
+        .chain(workspace.agent_ids.iter())
+        .find(|id| store.agent(**id).is_some())
+        .copied()
+}
+
+fn initial_agent_selection(store: &skwad_agents::AgentStore) -> Option<Uuid> {
+    store
+        .current_workspace_id()
+        .and_then(|id| agent_selection_for_workspace(store, id))
 }
 
 /// The slice of an agent the shell paints. [`agent_status_snapshot`] diffs
@@ -299,17 +329,39 @@ struct Shell {
     sessions: BTreeMap<Uuid, Arc<Mutex<TerminalSession<PtyTransport>>>>,
     command_input: Entity<InputState>,
     input_subscription: Option<Subscription>,
+    new_agent_name_input: Entity<InputState>,
+    new_agent_folder_input: Entity<InputState>,
+    show_new_agent: bool,
+    agent_error: Option<String>,
+    new_workspace_name_input: Entity<InputState>,
+    show_new_workspace: bool,
+    editing_workspace_id: Option<Uuid>,
     notifier: Arc<QueuedNotifier>,
     delivery_notice: Option<DeliveryNotice>,
     messages: Arc<Mutex<skwad_messaging::MessageStore>>,
     check_requests: Arc<Mutex<Vec<Uuid>>>,
+    process_exits: Arc<Mutex<Vec<Uuid>>>,
     awaiting_input: AwaitingInputQueue,
+    mcp_stop: Option<tokio::sync::oneshot::Sender<()>>,
     awaiting_notice: Option<AwaitingNotice>,
     /// The terminal/tracker background tasks (`TerminalSession::spawn_pty`
     /// calls `tokio::spawn`) need a runtime, but the UI thread only carries
     /// gpui's own executor. `attach_session` enters this one around each
     /// spawn so the tracker keeps running on its worker threads.
     runtime: tokio::runtime::Runtime,
+}
+
+impl Drop for Shell {
+    fn drop(&mut self) {
+        if let Some(stop) = self.mcp_stop.take() {
+            let _ = stop.send(());
+        }
+        for session in self.sessions.values() {
+            if let Ok(mut session) = session.lock() {
+                let _ = session.shutdown();
+            }
+        }
+    }
 }
 
 impl Shell {
@@ -338,6 +390,7 @@ impl Shell {
         let buffer_sink = Arc::clone(&buffer);
         self.buffers.insert(id, Arc::clone(&buffer));
         let status_store = Arc::clone(&self.store);
+        let process_exits = Arc::clone(&self.process_exits);
         let status_sink = EventSink {
             on_status: Some(Box::new(move |event| {
                 apply_terminal_status(&status_store, id, event.status);
@@ -366,17 +419,25 @@ impl Shell {
         // spawn. The drop of the guard just exits the context; the spawned
         // task keeps running on the runtime's worker threads.
         let _runtime_guard = self.runtime.enter();
-        let session =
-            TerminalSession::<PtyTransport>::spawn_pty(&config, status_sink, move |bytes| {
+        let session = TerminalSession::<PtyTransport>::spawn_pty_with_exit(
+            &config,
+            status_sink,
+            move |bytes| {
                 if let Ok(mut guard) = buffer_sink.lock() {
                     guard.bytes.extend_from_slice(bytes);
                 }
-            })
-            .and_then(|mut session| {
-                let plan = SessionPlan::build(&config);
-                session.start(&plan)?;
-                Ok(session)
-            });
+            },
+            move |_| {
+                if let Ok(mut process_exits) = process_exits.lock() {
+                    process_exits.push(id);
+                }
+            },
+        )
+        .and_then(|mut session| {
+            let plan = SessionPlan::build(&config);
+            session.start(&plan)?;
+            Ok(session)
+        });
 
         match session {
             Ok(session) => {
@@ -413,6 +474,233 @@ impl Shell {
             Err(_) => eprintln!("failed to send terminal command: session lock poisoned"),
         }
     }
+
+    fn persist_store(&mut self) {
+        let Ok(store) = self.store.lock() else {
+            self.agent_error = Some("Agent store is unavailable.".to_string());
+            return;
+        };
+        self.settings.saved_agents = store.saved_agents();
+        self.settings.saved_workspaces = store.saved_workspaces();
+        if let Err(error) = self.settings.persist() {
+            self.agent_error = Some(format!("Could not save agent: {error}"));
+        }
+    }
+
+    fn create_agent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let folder = self
+            .new_agent_folder_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        if folder.is_empty() {
+            self.agent_error = Some("Choose a folder for the agent.".to_string());
+            cx.notify();
+            return;
+        }
+        let path = PathBuf::from(&folder);
+        if !path.is_dir() {
+            self.agent_error = Some("The agent folder must be an existing directory.".to_string());
+            cx.notify();
+            return;
+        }
+
+        let name = self
+            .new_agent_name_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        let id = {
+            let mut store = self.store.lock().unwrap();
+            store.create(
+                folder,
+                skwad_agents::CreateOptions {
+                    name: (!name.is_empty()).then_some(name),
+                    ..Default::default()
+                },
+            )
+        };
+        self.persist_store();
+        self.agent_selection = Some(id);
+        self.show_new_agent = false;
+        self.agent_error = None;
+        cx.update_entity(&self.new_agent_name_input, |input, input_cx| {
+            input.clean(window, input_cx);
+        });
+        cx.update_entity(&self.new_agent_folder_input, |input, input_cx| {
+            input.clean(window, input_cx);
+        });
+        self.attach_session(id);
+        cx.notify();
+    }
+
+    fn cancel_new_agent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_new_agent = false;
+        self.agent_error = None;
+        cx.update_entity(&self.new_agent_name_input, |input, input_cx| {
+            input.clean(window, input_cx);
+        });
+        cx.update_entity(&self.new_agent_folder_input, |input, input_cx| {
+            input.clean(window, input_cx);
+        });
+        cx.notify();
+    }
+
+    fn close_agent(&mut self, id: Uuid, cx: &mut Context<Self>) {
+        let removed = self.store.lock().unwrap().remove(id);
+        if removed.is_empty() {
+            return;
+        }
+        for agent in &removed {
+            self.remove_session(agent.id, true);
+        }
+        if removed
+            .iter()
+            .any(|agent| Some(agent.id) == self.agent_selection)
+        {
+            self.agent_selection = {
+                let store = self.store.lock().unwrap();
+                initial_agent_selection(&store)
+            };
+            if let Some(selection) = self.agent_selection {
+                self.attach_session(selection);
+            }
+        }
+        self.persist_store();
+        cx.notify();
+    }
+
+    fn restart_agent(&mut self, id: Uuid, cx: &mut Context<Self>) {
+        self.remove_session(id, true);
+        if let Err(error) = self.store.lock().unwrap().restart(id) {
+            self.agent_error = Some(format!("Could not restart agent: {error}"));
+            cx.notify();
+            return;
+        }
+        self.agent_selection = Some(id);
+        self.attach_session(id);
+        self.persist_store();
+        cx.notify();
+    }
+
+    fn attach_agent(&mut self, id: Uuid, cx: &mut Context<Self>) {
+        self.agent_selection = Some(id);
+        self.attach_session(id);
+        cx.notify();
+    }
+
+    fn create_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self
+            .new_workspace_name_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        if name.is_empty() {
+            self.agent_error = Some("Choose a name for the workspace.".to_string());
+            cx.notify();
+            return;
+        }
+        if let Some(id) = self.editing_workspace_id {
+            if !self.store.lock().unwrap().rename_workspace(id, name) {
+                self.agent_error = Some("Workspace no longer exists.".to_string());
+                cx.notify();
+                return;
+            }
+            self.show_new_workspace = false;
+            self.editing_workspace_id = None;
+            self.agent_error = None;
+            self.persist_store();
+            cx.update_entity(&self.new_workspace_name_input, |input, input_cx| {
+                input.clean(window, input_cx);
+            });
+            cx.notify();
+            return;
+        }
+        let id = Uuid::new_v4();
+        self.store
+            .lock()
+            .unwrap()
+            .add_workspace(skwad_core::Workspace {
+                id,
+                name,
+                color_hex: "#1B4FB2".to_string(),
+                agent_ids: Vec::new(),
+                layout_mode: "single".to_string(),
+                active_agent_ids: Vec::new(),
+                focused_pane_index: 0,
+                split_ratio: 0.5,
+                split_ratio_secondary: None,
+                show_dashboard: None,
+                is_detached: None,
+            });
+        self.store.lock().unwrap().set_current_workspace(id);
+        self.agent_selection = None;
+        self.show_new_workspace = false;
+        self.editing_workspace_id = None;
+        self.agent_error = None;
+        self.persist_store();
+        cx.update_entity(&self.new_workspace_name_input, |input, input_cx| {
+            input.clean(window, input_cx);
+        });
+        cx.notify();
+    }
+
+    fn cancel_new_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_new_workspace = false;
+        self.editing_workspace_id = None;
+        self.agent_error = None;
+        cx.update_entity(&self.new_workspace_name_input, |input, input_cx| {
+            input.clean(window, input_cx);
+        });
+        cx.notify();
+    }
+
+    fn rename_workspace(&mut self, id: Uuid, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(name) = self
+            .store
+            .lock()
+            .unwrap()
+            .workspaces()
+            .iter()
+            .find(|workspace| workspace.id == id)
+            .map(|workspace| workspace.name.clone())
+        else {
+            return;
+        };
+        self.editing_workspace_id = Some(id);
+        self.show_new_workspace = true;
+        self.agent_error = None;
+        cx.update_entity(&self.new_workspace_name_input, |input, input_cx| {
+            input.set_value(name, window, input_cx);
+        });
+        cx.notify();
+    }
+
+    fn reap_sessions(&mut self, live_ids: &BTreeSet<Uuid>) {
+        let session_ids = self.sessions.keys().copied().collect::<Vec<_>>();
+        for id in stale_session_ids(&session_ids, live_ids) {
+            self.remove_session(id, true);
+        }
+    }
+
+    fn remove_exited_sessions(&mut self, ids: &[Uuid]) {
+        for id in ids {
+            self.remove_session(*id, false);
+        }
+    }
+
+    fn remove_session(&mut self, id: Uuid, shutdown: bool) {
+        if let Some(session) = self.sessions.remove(&id)
+            && shutdown
+            && let Ok(mut session) = session.lock()
+        {
+            let _ = session.shutdown();
+        }
+        self.buffers.remove(&id);
+    }
 }
 
 impl Render for Shell {
@@ -446,21 +734,76 @@ impl Render for Shell {
             .into_iter()
             .map(|row| {
                 let id = row.id;
-                Button::new(id.to_string())
-                    .label(row.name)
-                    .selected(row.selected)
-                    .on_click(cx.listener(move |shell, _: &ClickEvent, _window, cx| {
-                        shell.store.lock().unwrap().set_current_workspace(id);
-                        cx.notify();
-                    }))
+                let name = row.name;
+                h_flex()
+                    .child(
+                        Button::new(id.to_string())
+                            .label(name)
+                            .selected(row.selected)
+                            .on_click(cx.listener(move |shell, _: &ClickEvent, _window, cx| {
+                                let selection = {
+                                    let mut store = shell.store.lock().unwrap();
+                                    store.set_current_workspace(id);
+                                    agent_selection_for_workspace(&store, id)
+                                };
+                                shell.agent_selection = selection;
+                                if let Some(agent_id) = selection {
+                                    shell.attach_session(agent_id);
+                                }
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new(format!("rename-workspace-{id}"))
+                            .label("Rename")
+                            .on_click(cx.listener(move |shell, _: &ClickEvent, window, cx| {
+                                shell.rename_workspace(id, window, cx);
+                            })),
+                    )
             })
             .collect::<Vec<_>>();
+
+        let new_workspace_button = Button::new("new-workspace")
+            .label("New Workspace")
+            .on_click(cx.listener(|shell, _: &ClickEvent, _window, cx| {
+                shell.show_new_workspace = true;
+                shell.agent_error = None;
+                cx.notify();
+            }));
+        let new_workspace_form = if self.show_new_workspace {
+            v_flex()
+                .child(Input::new(&self.new_workspace_name_input).h_full())
+                .child(
+                    h_flex()
+                        .child(
+                            Button::new("create-workspace")
+                                .label(if self.editing_workspace_id.is_some() {
+                                    "Save"
+                                } else {
+                                    "Create"
+                                })
+                                .on_click(cx.listener(|shell, _: &ClickEvent, window, cx| {
+                                    shell.create_workspace(window, cx);
+                                })),
+                        )
+                        .child(
+                            Button::new("cancel-create-workspace")
+                                .label("Cancel")
+                                .on_click(cx.listener(|shell, _: &ClickEvent, window, cx| {
+                                    shell.cancel_new_workspace(window, cx);
+                                })),
+                        ),
+                )
+        } else {
+            v_flex()
+        };
 
         let agent_buttons = model
             .selected_agent_rows
             .into_iter()
             .map(|row| {
                 let id = row.id;
+                let attached = row.attached;
                 let label = format!(
                     "{} {} [{}] [{}] {}{}{}",
                     row.avatar,
@@ -475,16 +818,71 @@ impl Render for Shell {
                         String::new()
                     }
                 );
-                Button::new(id.to_string())
-                    .label(label)
-                    .selected(row.selected)
-                    .on_click(cx.listener(move |shell, _: &ClickEvent, _window, cx| {
-                        shell.agent_selection = Some(id);
-                        shell.attach_session(id);
-                        cx.notify();
-                    }))
+                h_flex()
+                    .child(
+                        Button::new(format!("select-agent-{id}"))
+                            .label(label)
+                            .selected(row.selected)
+                            .on_click(cx.listener(move |shell, _: &ClickEvent, _window, cx| {
+                                shell.agent_selection = Some(id);
+                                shell.attach_session(id);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new(format!("attach-agent-{id}"))
+                            .label(if attached { "Restart" } else { "Attach" })
+                            .on_click(cx.listener(move |shell, _: &ClickEvent, _window, cx| {
+                                if attached {
+                                    shell.restart_agent(id, cx);
+                                } else {
+                                    shell.attach_agent(id, cx);
+                                }
+                            })),
+                    )
+                    .child(
+                        Button::new(format!("close-agent-{id}"))
+                            .label("Close")
+                            .on_click(cx.listener(move |shell, _: &ClickEvent, _window, cx| {
+                                shell.close_agent(id, cx);
+                            })),
+                    )
             })
             .collect::<Vec<_>>();
+
+        let new_agent_button = Button::new("new-agent")
+            .label("New Agent")
+            .on_click(cx.listener(|shell, _: &ClickEvent, _window, cx| {
+                shell.show_new_agent = true;
+                shell.agent_error = None;
+                cx.notify();
+            }));
+        let new_agent_form =
+            if self.show_new_agent {
+                v_flex()
+                    .child(Input::new(&self.new_agent_folder_input).h_full())
+                    .child(Input::new(&self.new_agent_name_input).h_full())
+                    .child(
+                        h_flex()
+                            .child(Button::new("create-agent").label("Create").on_click(
+                                cx.listener(|shell, _: &ClickEvent, window, cx| {
+                                    shell.create_agent(window, cx);
+                                }),
+                            ))
+                            .child(Button::new("cancel-create-agent").label("Cancel").on_click(
+                                cx.listener(|shell, _: &ClickEvent, window, cx| {
+                                    shell.cancel_new_agent(window, cx);
+                                }),
+                            )),
+                    )
+                    .children(
+                        self.agent_error
+                            .as_ref()
+                            .map(|error| div().child(error.clone())),
+                    )
+            } else {
+                v_flex()
+            };
 
         let command_input = Input::new(&self.command_input).h_full();
         let terminal_pane = match &terminal_model.header {
@@ -526,8 +924,20 @@ impl Render for Shell {
 
         h_flex()
             .size_full()
-            .child(v_flex().size_full().children(workspace_buttons))
-            .child(v_flex().size_full().children(agent_buttons))
+            .child(
+                v_flex()
+                    .size_full()
+                    .child(new_workspace_button)
+                    .child(new_workspace_form)
+                    .children(workspace_buttons),
+            )
+            .child(
+                v_flex()
+                    .size_full()
+                    .child(new_agent_button)
+                    .child(new_agent_form)
+                    .children(agent_buttons),
+            )
             .child(terminal_pane)
     }
 }
@@ -552,6 +962,36 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
                 return (false, None, None);
             };
             let mut changed = false;
+            let exited_ids = entity
+                .read(app)
+                .process_exits
+                .lock()
+                .unwrap()
+                .drain(..)
+                .collect::<Vec<_>>();
+            if !exited_ids.is_empty() {
+                entity.update(app, |shell, _| shell.remove_exited_sessions(&exited_ids));
+                changed = true;
+            }
+            let live_ids = entity
+                .read(app)
+                .store
+                .lock()
+                .unwrap()
+                .agents()
+                .iter()
+                .map(|agent| agent.id)
+                .collect::<BTreeSet<_>>();
+            let session_ids = entity
+                .read(app)
+                .sessions
+                .keys()
+                .copied()
+                .collect::<Vec<_>>();
+            if !stale_session_ids(&session_ids, &live_ids).is_empty() {
+                entity.update(app, |shell, _| shell.reap_sessions(&live_ids));
+                changed = true;
+            }
             for id in entity.read(app).sessions.keys() {
                 let len = entity
                     .read(app)
@@ -687,7 +1127,8 @@ fn start_mcp_server(
     notifier: Arc<QueuedNotifier>,
     messages: Arc<Mutex<skwad_messaging::MessageStore>>,
     awaiting_input: AwaitingInputQueue,
-) {
+) -> tokio::sync::oneshot::Sender<()> {
+    let (stop, stop_rx) = tokio::sync::oneshot::channel();
     std::thread::spawn(move || {
         let runtime = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
@@ -733,22 +1174,30 @@ fn start_mcp_server(
                 return;
             }
 
-            // Keep the discovery watch and the running server alive for the
-            // life of this thread.
-            std::future::pending::<()>().await;
+            tokio::select! {
+                _ = stop_rx => {}
+                _ = std::future::pending::<()>() => {}
+            }
+            server.stop();
             drop(discovery);
-            drop(server);
         });
     });
+    stop
 }
 
 fn main() {
-    let settings = skwad_core::Settings::load().unwrap_or_default();
+    let mut settings = skwad_core::Settings::load().unwrap_or_default();
+    if let Err(err) = settings.init_source_folder() {
+        eprintln!("failed to initialize source folder: {err}");
+    }
+    if let Err(err) = settings.install_default_personas() {
+        eprintln!("failed to install default personas: {err}");
+    }
     let store = Arc::new(Mutex::new(build_agent_store(&settings)));
     let notifier = Arc::new(QueuedNotifier::new());
     let messages = Arc::new(Mutex::new(skwad_messaging::MessageStore::new()));
     let awaiting_input = Arc::new(Mutex::new(Vec::new()));
-    start_mcp_server(
+    let mcp_stop = start_mcp_server(
         Arc::clone(&store),
         settings.clone(),
         Arc::clone(&notifier),
@@ -773,19 +1222,35 @@ fn main() {
                         .placeholder("Run a command...")
                         .submit_on_enter(true)
                 });
+                let new_agent_name_input =
+                    cx.new(|cx| InputState::new(window, cx).placeholder("Agent name (optional)"));
+                let new_agent_folder_input =
+                    cx.new(|cx| InputState::new(window, cx).placeholder("Agent folder path"));
+                let new_workspace_name_input =
+                    cx.new(|cx| InputState::new(window, cx).placeholder("Workspace name"));
+                let initial_selection = initial_agent_selection(&store.lock().unwrap());
                 let view = cx.new(|_| Shell {
                     store: Arc::clone(&store),
                     settings: settings.clone(),
-                    agent_selection: None,
+                    agent_selection: initial_selection,
                     buffers: BTreeMap::new(),
                     sessions: BTreeMap::new(),
                     command_input: command_input.clone(),
                     input_subscription: None,
+                    new_agent_name_input,
+                    new_agent_folder_input,
+                    show_new_agent: false,
+                    agent_error: None,
+                    new_workspace_name_input,
+                    show_new_workspace: false,
+                    editing_workspace_id: None,
                     notifier: Arc::clone(&notifier),
                     delivery_notice: None,
                     messages: Arc::clone(&messages),
                     check_requests: Arc::new(Mutex::new(Vec::new())),
+                    process_exits: Arc::new(Mutex::new(Vec::new())),
                     awaiting_input: Arc::clone(&awaiting_input),
+                    mcp_stop: Some(mcp_stop),
                     awaiting_notice: None,
                     runtime,
                 });
@@ -804,6 +1269,9 @@ fn main() {
                     });
                 view.update(cx, |shell, _| {
                     shell.input_subscription = Some(subscription);
+                    if let Some(id) = initial_selection {
+                        shell.attach_session(id);
+                    }
                 });
                 let weak = view.downgrade();
                 cx.spawn(async move |cx| poll_outputs(weak, cx).await)
@@ -888,6 +1356,16 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(names, vec!["alpha", "beta"]);
         assert!(!names.contains(&"gamma"));
+        let gamma_id = store
+            .agents()
+            .iter()
+            .find(|agent| agent.name == "gamma")
+            .map(|agent| agent.id)
+            .unwrap();
+        assert_eq!(
+            agent_selection_for_workspace(&store, ws2.id),
+            Some(gamma_id)
+        );
     }
 
     #[test]
@@ -1038,6 +1516,15 @@ mod tests {
     fn command_to_send_trims_input_and_rejects_empty_commands() {
         assert_eq!(command_to_send("  cargo test  "), Some("cargo test"));
         assert_eq!(command_to_send("\t\n"), None);
+    }
+
+    #[test]
+    fn stale_session_ids_excludes_live_agents() {
+        let live = Uuid::new_v4();
+        let stale = Uuid::new_v4();
+        let live_ids = BTreeSet::from([live]);
+
+        assert_eq!(stale_session_ids(&[live, stale], &live_ids), vec![stale]);
     }
 
     #[test]
@@ -1243,5 +1730,22 @@ mod tests {
         let store = build_agent_store(&settings);
         assert!(store.agents().is_empty());
         assert!(store.workspaces().is_empty());
+    }
+
+    #[test]
+    fn initial_selection_prefers_active_agent_and_skips_stale_ids() {
+        let mut store = skwad_agents::AgentStore::new();
+        let ws = workspace("One");
+        store.add_workspace(ws.clone());
+        store.set_current_workspace(ws.id);
+        let first = store.create("~/first", skwad_agents::CreateOptions::default());
+        let second = store.create("~/second", skwad_agents::CreateOptions::default());
+
+        let mut saved = store.saved_workspaces()[0].clone();
+        saved.active_agent_ids = vec![Uuid::new_v4(), second];
+        let restored = skwad_agents::AgentStore::from_saved(&store.saved_agents(), vec![saved]);
+
+        assert_eq!(initial_agent_selection(&restored), Some(second));
+        assert_ne!(initial_agent_selection(&restored), Some(first));
     }
 }
