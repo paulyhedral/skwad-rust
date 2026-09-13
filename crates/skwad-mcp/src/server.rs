@@ -187,6 +187,7 @@ async fn mcp_sse() -> Response {
 }
 
 async fn mcp_rpc(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+    state.sessions.cleanup_stale_default();
     let session_id = headers
         .get(SESSION_HEADER)
         .and_then(|v| v.to_str().ok())
