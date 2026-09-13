@@ -1,5 +1,5 @@
 <p align="center">
-   <img src="Skwad/Resources/Assets.xcassets/AppIcon.appiconset/icon_256.png" width="128" height="128" alt="Skwad App Icon" />
+   <img src="images/skwad-icon.png" width="128" height="128" alt="Skwad App Icon" />
 </p>
 
 # Skwad
