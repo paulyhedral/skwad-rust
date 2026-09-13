@@ -21,6 +21,7 @@ use uuid::Uuid;
 const MAX_VISIBLE_LINES: usize = 200;
 const OUTPUT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const CHECK_INBOX_PROMPT: &str = "Check your inbox for questions or instructions from other agents. Update your status and immediately execute what is being asked without confirmation.";
+type AwaitingInputQueue = Arc<Mutex<Vec<(Uuid, Option<String>)>>>;
 
 /// Captured bytes streamed out of a live terminal session. Rendered lazily.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -212,6 +213,12 @@ struct DeliveryNotice {
     count: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AwaitingNotice {
+    agent_name: String,
+    message: String,
+}
+
 fn delivery_notice(
     events: &[DeliveryEvent],
     agents: &[skwad_agents::Agent],
@@ -273,6 +280,17 @@ fn should_inject_inbox_prompt(
         && latest_message.is_some_and(|message_id| Some(message_id) != last_injected)
 }
 
+fn should_show_awaiting_notice(
+    selected_agent: Option<Uuid>,
+    agent_id: Uuid,
+    message: &str,
+    last_message: Option<&String>,
+) -> bool {
+    selected_agent != Some(agent_id)
+        && !message.is_empty()
+        && last_message.is_none_or(|last| last != message)
+}
+
 struct Shell {
     store: Arc<Mutex<skwad_agents::AgentStore>>,
     settings: skwad_core::Settings,
@@ -285,6 +303,8 @@ struct Shell {
     delivery_notice: Option<DeliveryNotice>,
     messages: Arc<Mutex<skwad_messaging::MessageStore>>,
     check_requests: Arc<Mutex<Vec<Uuid>>>,
+    awaiting_input: AwaitingInputQueue,
+    awaiting_notice: Option<AwaitingNotice>,
     /// The terminal/tracker background tasks (`TerminalSession::spawn_pty`
     /// calls `tokio::spawn`) need a runtime, but the UI thread only carries
     /// gpui's own executor. `attach_session` enters this one around each
@@ -327,6 +347,14 @@ impl Shell {
                 Some(Box::new(move || {
                     if let Ok(mut requests) = requests.lock() {
                         requests.push(id);
+                    }
+                }))
+            },
+            on_awaiting_input: {
+                let awaiting_input = Arc::clone(&self.awaiting_input);
+                Some(Box::new(move |message| {
+                    if let Ok(mut awaiting_input) = awaiting_input.lock() {
+                        awaiting_input.push((id, message));
                     }
                 }))
             },
@@ -483,6 +511,12 @@ impl Render for Shell {
                             notice.recipient_name, notice.count
                         ))
                     }))
+                    .children(self.awaiting_notice.as_ref().map(|notice| {
+                        div().child(format!(
+                            "{} is awaiting input: {}",
+                            notice.agent_name, notice.message
+                        ))
+                    }))
             }
             None => v_flex()
                 .size_full()
@@ -507,14 +541,15 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
     let mut last_status: Option<Vec<AgentStatusKey>> = None;
     let mut last_unread: Option<BTreeMap<Uuid, usize>> = None;
     let mut last_injected_message = BTreeMap::<Uuid, Uuid>::new();
+    let mut last_awaiting_message = BTreeMap::<Uuid, String>::new();
     loop {
         cx.background_executor().timer(OUTPUT_POLL_INTERVAL).await;
         if weak.upgrade().is_none() {
             break;
         }
-        let (changed, notice) = cx.update(|app| {
+        let (changed, notice, awaiting_notice) = cx.update(|app| {
             let Some(entity) = weak.upgrade() else {
-                return (false, None);
+                return (false, None, None);
             };
             let mut changed = false;
             for id in entity.read(app).sessions.keys() {
@@ -549,6 +584,40 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
             let events = entity.read(app).notifier.drain();
             let notice = delivery_notice(&events, &agents);
             changed |= notice.is_some();
+            let awaiting_events = entity
+                .read(app)
+                .awaiting_input
+                .lock()
+                .unwrap()
+                .drain(..)
+                .collect::<Vec<_>>();
+            let mut awaiting_notice = None;
+            for (id, message) in awaiting_events {
+                let Some(message) = message else {
+                    continue;
+                };
+                if !should_show_awaiting_notice(
+                    entity.read(app).agent_selection,
+                    id,
+                    &message,
+                    last_awaiting_message.get(&id),
+                ) {
+                    continue;
+                }
+                let Some(agent_name) = agents
+                    .iter()
+                    .find(|agent| agent.id == id)
+                    .map(|agent| agent.name.clone())
+                else {
+                    continue;
+                };
+                last_awaiting_message.insert(id, message.clone());
+                awaiting_notice = Some(AwaitingNotice {
+                    agent_name,
+                    message,
+                });
+            }
+            changed |= awaiting_notice.is_some();
             let requests = entity
                 .read(app)
                 .check_requests
@@ -584,7 +653,7 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
                     changed = true;
                 }
             }
-            (changed, notice)
+            (changed, notice, awaiting_notice)
         });
         if changed {
             cx.update(|app| {
@@ -592,6 +661,9 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
                     entity.update(app, |shell, cx| {
                         if let Some(notice) = notice {
                             shell.delivery_notice = Some(notice);
+                        }
+                        if let Some(notice) = awaiting_notice {
+                            shell.awaiting_notice = Some(notice);
                         }
                         cx.notify();
                     });
@@ -614,6 +686,7 @@ fn start_mcp_server(
     settings: skwad_core::Settings,
     notifier: Arc<QueuedNotifier>,
     messages: Arc<Mutex<skwad_messaging::MessageStore>>,
+    awaiting_input: AwaitingInputQueue,
 ) {
     std::thread::spawn(move || {
         let runtime = match tokio::runtime::Runtime::new() {
@@ -639,6 +712,7 @@ fn start_mcp_server(
             let catalog = Arc::new(
                 skwad_mcp_tools::McpToolCatalog::new(agents, repos_rx, notifier)
                     .with_message_store(messages)
+                    .with_awaiting_input_queue(awaiting_input)
                     .with_settings(settings.clone()),
             );
             catalog.set_bench_agents(settings.bench_agents.clone());
@@ -673,11 +747,13 @@ fn main() {
     let store = Arc::new(Mutex::new(build_agent_store(&settings)));
     let notifier = Arc::new(QueuedNotifier::new());
     let messages = Arc::new(Mutex::new(skwad_messaging::MessageStore::new()));
+    let awaiting_input = Arc::new(Mutex::new(Vec::new()));
     start_mcp_server(
         Arc::clone(&store),
         settings.clone(),
         Arc::clone(&notifier),
         Arc::clone(&messages),
+        Arc::clone(&awaiting_input),
     );
 
     gpui_kit::application().run(move |cx| {
@@ -709,6 +785,8 @@ fn main() {
                     delivery_notice: None,
                     messages: Arc::clone(&messages),
                     check_requests: Arc::new(Mutex::new(Vec::new())),
+                    awaiting_input: Arc::clone(&awaiting_input),
+                    awaiting_notice: None,
                     runtime,
                 });
                 let subscription_target = view.downgrade();
@@ -1076,6 +1154,25 @@ mod tests {
             false,
             Some(message),
             None
+        ));
+    }
+
+    #[test]
+    fn awaiting_notice_skips_active_empty_and_duplicate_messages() {
+        let agent = Uuid::new_v4();
+        assert!(should_show_awaiting_notice(None, agent, "Question?", None));
+        assert!(!should_show_awaiting_notice(
+            Some(agent),
+            agent,
+            "Question?",
+            None
+        ));
+        assert!(!should_show_awaiting_notice(None, agent, "", None));
+        assert!(!should_show_awaiting_notice(
+            None,
+            agent,
+            "Question?",
+            Some(&"Question?".to_string())
         ));
     }
 

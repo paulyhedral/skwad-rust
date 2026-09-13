@@ -30,6 +30,8 @@ use uuid::Uuid;
 
 use crate::lookup::state_string;
 
+type AwaitingInputQueue = Arc<Mutex<Vec<(Uuid, Option<String>)>>>;
+
 /// The concrete `ToolCatalog` for the thirteen tools in
 /// `openspec/specs/mcp-tools/spec.md`. Holds every piece of shared state a
 /// handler needs; each `call` locks only what that tool touches.
@@ -41,6 +43,7 @@ pub struct McpToolCatalog {
     bench_agents: Mutex<Vec<BenchAgent>>,
     settings: Mutex<Option<Settings>>,
     trackers: Mutex<HashMap<Uuid, Tracker>>,
+    awaiting_input: Mutex<Option<AwaitingInputQueue>>,
 }
 
 impl McpToolCatalog {
@@ -60,11 +63,17 @@ impl McpToolCatalog {
             bench_agents: Mutex::new(Vec::new()),
             settings: Mutex::new(None),
             trackers: Mutex::new(HashMap::new()),
+            awaiting_input: Mutex::new(None),
         }
     }
 
     pub fn with_message_store(mut self, messages: Arc<Mutex<MessageStore>>) -> Self {
         self.messages = messages;
+        self
+    }
+
+    pub fn with_awaiting_input_queue(self, queue: AwaitingInputQueue) -> Self {
+        *self.awaiting_input.lock().unwrap() = Some(queue);
         self
     }
 
@@ -111,10 +120,18 @@ impl McpToolCatalog {
         }
 
         let agents = Arc::clone(&self.agents);
+        let awaiting_input = self.awaiting_input.lock().unwrap().clone();
         let sink = EventSink {
             on_status: Some(Box::new(move |event| {
                 agents.lock().unwrap().set_state(id, event.status);
             })),
+            on_awaiting_input: awaiting_input.map(|queue| {
+                Box::new(move |message| {
+                    if let Ok(mut queue) = queue.lock() {
+                        queue.push((id, message));
+                    }
+                }) as Box<dyn FnMut(Option<String>) + Send>
+            }),
             ..Default::default()
         };
         let tracker = Tracker::spawn(
@@ -214,18 +231,28 @@ impl AgentHookHandler for McpToolCatalog {
             HookStatus::Idle => AgentState::Idle,
             HookStatus::AwaitingInput => AgentState::Input,
         };
+        let input_message = matches!(status, HookStatus::AwaitingInput)
+            .then(|| hook_input_message(&request.payload))
+            .flatten();
         if self.tracker_for(id, &request.agent) {
             self.trackers
                 .lock()
                 .unwrap()
                 .get(&id)
                 .expect("tracker inserted above")
-                .apply_hook_status(state, None);
+                .apply_hook_status(state, input_message);
         } else {
             self.agents.lock().unwrap().set_state(id, state);
         }
         Ok(serde_json::json!({"success": true}))
     }
+}
+
+fn hook_input_message(payload: &serde_json::Value) -> Option<String> {
+    payload
+        .get("message")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
 }
 
 fn prop(schema_type: &str, description: &str) -> PropertySchema {
@@ -694,5 +721,18 @@ mod tests {
             .set_status_text(id, "planning".to_string());
         assert_eq!(a.agents_snapshot()[0].status_text, "planning");
         assert_eq!(b.agents_snapshot()[0].status_text, "planning");
+    }
+
+    #[test]
+    fn hook_input_message_extracts_optional_payload_message() {
+        assert_eq!(
+            hook_input_message(&serde_json::json!({"message": "Question?"})),
+            Some("Question?".to_string())
+        );
+        assert_eq!(
+            hook_input_message(&serde_json::json!({"message": 42})),
+            None
+        );
+        assert_eq!(hook_input_message(&serde_json::json!({})), None);
     }
 }
