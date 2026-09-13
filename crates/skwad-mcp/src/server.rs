@@ -39,6 +39,12 @@ pub struct McpServer {
     bound_addr: Option<std::net::SocketAddr>,
 }
 
+impl Drop for McpServer {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 impl McpServer {
     pub fn new(port: u16, catalog: Arc<dyn ToolCatalog>, agents: AgentsSnapshotFn) -> Self {
         Self {
