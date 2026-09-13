@@ -201,6 +201,11 @@ struct Shell {
     agent_selection: Option<Uuid>,
     buffers: BTreeMap<Uuid, Arc<Mutex<OutputBuffer>>>,
     sessions: BTreeMap<Uuid, Arc<Mutex<TerminalSession<PtyTransport>>>>,
+    /// The terminal/tracker background tasks (`TerminalSession::spawn_pty`
+    /// calls `tokio::spawn`) need a runtime, but the UI thread only carries
+    /// gpui's own executor. `attach_session` enters this one around each
+    /// spawn so the tracker keeps running on its worker threads.
+    runtime: tokio::runtime::Runtime,
 }
 
 impl Shell {
@@ -229,6 +234,11 @@ impl Shell {
         let buffer_sink = Arc::clone(&buffer);
         self.buffers.insert(id, Arc::clone(&buffer));
 
+        // `spawn_pty` runs `tokio::spawn` for the activity tracker; the UI
+        // thread has no tokio runtime of its own, so enter ours around the
+        // spawn. The drop of the guard just exits the context; the spawned
+        // task keeps running on the runtime's worker threads.
+        let _runtime_guard = self.runtime.enter();
         let session = TerminalSession::<PtyTransport>::spawn_pty(
             &config,
             EventSink::default(),
@@ -462,6 +472,13 @@ fn main() {
     gpui_kit::application().run(move |cx| {
         gpui_kit::init(cx);
 
+        let runtime = match tokio::runtime::Runtime::new() {
+            Ok(runtime) => runtime,
+            Err(err) => {
+                eprintln!("failed to start tokio runtime: {err}");
+                return;
+            }
+        };
         cx.spawn(async move |cx| {
             cx.open_window(WindowOptions::default(), |window, cx| {
                 let view = cx.new(|_| Shell {
@@ -470,6 +487,7 @@ fn main() {
                     agent_selection: None,
                     buffers: BTreeMap::new(),
                     sessions: BTreeMap::new(),
+                    runtime,
                 });
                 let weak = view.downgrade();
                 cx.spawn(async move |cx| poll_outputs(weak, cx).await)
