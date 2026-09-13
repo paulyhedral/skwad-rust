@@ -13,6 +13,7 @@ use uuid::Uuid;
 use crate::consts;
 use crate::hooks::{AgentHookHandler, HookRequest};
 use crate::rpc::{self, JsonRpcId, JsonRpcRequest, JsonRpcResponse};
+use crate::session::McpSessionManager;
 use crate::status::{self, AgentStatusEntry};
 use crate::tools::ToolCatalog;
 
@@ -26,6 +27,7 @@ struct AppState {
     catalog: Arc<dyn ToolCatalog>,
     agents: AgentsSnapshotFn,
     hooks: Option<Arc<dyn AgentHookHandler>>,
+    sessions: McpSessionManager,
 }
 
 /// The local MCP HTTP server: health/info, JSON-RPC `/mcp`, SSE `/mcp`, and
@@ -45,6 +47,7 @@ impl McpServer {
                 catalog,
                 agents,
                 hooks: None,
+                sessions: McpSessionManager::new(),
             },
             handle: None,
             bound_addr: None,
@@ -198,17 +201,23 @@ async fn mcp_rpc(State(state): State<AppState>, headers: HeaderMap, body: Bytes)
         Err(e) => return json_rpc_error_response(-32700, format!("Parse error: {e}")),
     };
 
+    let response_session_id = if request.method == "initialize" {
+        state.sessions.create_session(Uuid::nil()).id
+    } else if let Some(session_id) = session_id {
+        if state.sessions.session(&session_id).is_none() {
+            return session_error_response(request.id, "Invalid or expired MCP session");
+        }
+        state.sessions.touch(&session_id);
+        session_id
+    } else {
+        state.sessions.create_session(Uuid::nil()).id
+    };
+
     if request.method.starts_with("notifications/") {
         return StatusCode::ACCEPTED.into_response();
     }
 
     let response = rpc::dispatch(&request, state.catalog.as_ref()).await;
-
-    let response_session_id = if request.method == "initialize" {
-        Uuid::new_v4().to_string()
-    } else {
-        session_id.unwrap_or_else(|| Uuid::new_v4().to_string())
-    };
 
     if accepts_sse {
         let data = serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string());
@@ -220,6 +229,11 @@ async fn mcp_rpc(State(state): State<AppState>, headers: HeaderMap, body: Bytes)
         resp.headers_mut().insert(SESSION_HEADER, value);
     }
     resp
+}
+
+fn session_error_response(id: Option<JsonRpcId>, message: &str) -> Response {
+    let response = JsonRpcResponse::error(id, -32000, message);
+    (StatusCode::BAD_REQUEST, axum::Json(response)).into_response()
 }
 
 fn json_rpc_error_response(code: i64, message: String) -> Response {

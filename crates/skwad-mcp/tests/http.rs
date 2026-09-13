@@ -73,6 +73,26 @@ async fn initialize_handshake_over_http() {
 }
 
 #[tokio::test]
+async fn invalid_mcp_session_is_rejected() {
+    let (mut server, base) = start_server(Arc::new(EmptyCatalog)).await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{base}/mcp"))
+        .header("Mcp-Session-Id", "missing-session")
+        .json(&json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 400);
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["error"]["code"], -32000);
+
+    server.stop();
+}
+
+#[tokio::test]
 async fn unknown_method_over_http_is_method_not_found() {
     let (mut server, base) = start_server(Arc::new(EmptyCatalog)).await;
     let client = reqwest::Client::new();
