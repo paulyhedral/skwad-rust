@@ -591,6 +591,23 @@ impl Shell {
         cx.notify();
     }
 
+    fn open_workspace_manager(&self, cx: &mut Context<Self>) {
+        let store = Arc::clone(&self.store);
+        let settings = self.settings.clone();
+        cx.open_window(WindowOptions::default(), move |window, cx| {
+            let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Workspace name"));
+            let view = cx.new(|_| WorkspaceManager {
+                store,
+                settings,
+                name_input,
+                editing_id: None,
+                error: None,
+            });
+            cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
+        })
+        .expect("failed to open workspace manager");
+    }
+
     fn create_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let name = self
             .new_workspace_name_input
@@ -703,6 +720,136 @@ impl Shell {
     }
 }
 
+struct WorkspaceManager {
+    store: Arc<Mutex<skwad_agents::AgentStore>>,
+    settings: skwad_core::Settings,
+    name_input: Entity<InputState>,
+    editing_id: Option<Uuid>,
+    error: Option<String>,
+}
+
+impl WorkspaceManager {
+    fn persist(&mut self) {
+        let Ok(store) = self.store.lock() else {
+            self.error = Some("Agent store is unavailable.".to_string());
+            return;
+        };
+        self.settings.saved_agents = store.saved_agents();
+        self.settings.saved_workspaces = store.saved_workspaces();
+        if let Err(error) = self.settings.persist() {
+            self.error = Some(format!("Could not save workspace: {error}"));
+        }
+    }
+
+    fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self.name_input.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            self.error = Some("Workspace name cannot be empty.".to_string());
+            cx.notify();
+            return;
+        }
+        let mut store = self.store.lock().unwrap();
+        if let Some(id) = self.editing_id {
+            if !store.rename_workspace(id, name) {
+                self.error = Some("Workspace no longer exists.".to_string());
+                cx.notify();
+                return;
+            }
+        } else {
+            let id = Uuid::new_v4();
+            store.add_workspace(skwad_core::Workspace {
+                id,
+                name,
+                color_hex: "#1B4FB2".to_string(),
+                agent_ids: Vec::new(),
+                layout_mode: "single".to_string(),
+                active_agent_ids: Vec::new(),
+                focused_pane_index: 0,
+                split_ratio: 0.5,
+                split_ratio_secondary: None,
+                show_dashboard: None,
+                is_detached: None,
+            });
+            store.set_current_workspace(id);
+        }
+        drop(store);
+        self.persist();
+        self.editing_id = None;
+        self.error = None;
+        cx.update_entity(&self.name_input, |input, input_cx| {
+            input.clean(window, input_cx);
+        });
+        cx.notify();
+    }
+
+    fn edit(&mut self, id: Uuid, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self
+            .store
+            .lock()
+            .unwrap()
+            .workspaces()
+            .iter()
+            .find(|workspace| workspace.id == id)
+            .map(|workspace| workspace.name.clone());
+        let Some(name) = name else {
+            return;
+        };
+        self.editing_id = Some(id);
+        self.error = None;
+        cx.update_entity(&self.name_input, |input, input_cx| {
+            input.set_value(name, window, input_cx);
+        });
+        cx.notify();
+    }
+}
+
+impl Render for WorkspaceManager {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let workspaces = self.store.lock().unwrap().workspaces().to_vec();
+        let rows = workspaces.into_iter().map(|workspace| {
+            let id = workspace.id;
+            h_flex()
+                .child(
+                    Button::new(format!("select-managed-workspace-{id}"))
+                        .label(format!(
+                            "{} ({} agents)",
+                            workspace.name,
+                            workspace.agent_ids.len()
+                        ))
+                        .on_click(cx.listener(move |manager, _: &ClickEvent, _window, cx| {
+                            manager.store.lock().unwrap().set_current_workspace(id);
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    Button::new(format!("edit-workspace-{id}"))
+                        .label("Rename")
+                        .on_click(cx.listener(move |manager, _: &ClickEvent, window, cx| {
+                            manager.edit(id, window, cx);
+                        })),
+                )
+        });
+        let form_label = if self.editing_id.is_some() {
+            "Save"
+        } else {
+            "Create"
+        };
+        v_flex()
+            .size_full()
+            .child(div().child("Workspace Manager"))
+            .children(rows)
+            .child(Input::new(&self.name_input).h_full())
+            .child(
+                Button::new("save-workspace")
+                    .label(form_label)
+                    .on_click(cx.listener(|manager, _: &ClickEvent, window, cx| {
+                        manager.save(window, cx);
+                    })),
+            )
+            .children(self.error.as_ref().map(|error| div().child(error.clone())))
+    }
+}
+
 impl Render for Shell {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let attached_ids = self.sessions.keys().copied().collect::<Vec<_>>();
@@ -769,6 +916,11 @@ impl Render for Shell {
                 shell.show_new_workspace = true;
                 shell.agent_error = None;
                 cx.notify();
+            }));
+        let manage_workspaces_button = Button::new("manage-workspaces")
+            .label("Manage Workspaces")
+            .on_click(cx.listener(|shell, _: &ClickEvent, _window, cx| {
+                shell.open_workspace_manager(cx);
             }));
         let new_workspace_form = if self.show_new_workspace {
             v_flex()
@@ -927,6 +1079,7 @@ impl Render for Shell {
             .child(
                 v_flex()
                     .size_full()
+                    .child(manage_workspaces_button)
                     .child(new_workspace_button)
                     .child(new_workspace_form)
                     .children(workspace_buttons),
@@ -950,6 +1103,7 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
     let mut seen = BTreeMap::<Uuid, usize>::new();
     let mut last_status: Option<Vec<AgentStatusKey>> = None;
     let mut last_unread: Option<BTreeMap<Uuid, usize>> = None;
+    let mut last_workspace = None;
     let mut last_injected_message = BTreeMap::<Uuid, Uuid>::new();
     let mut last_awaiting_message = BTreeMap::<Uuid, String>::new();
     loop {
@@ -1004,13 +1158,21 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
                     seen.insert(*id, len);
                 }
             }
-            let (status, agents) = {
+            let (status, agents, workspace_id) = {
                 let store = entity.read(app).store.lock().unwrap();
-                (agent_status_snapshot(&store), store.agents().to_vec())
+                (
+                    agent_status_snapshot(&store),
+                    store.agents().to_vec(),
+                    store.current_workspace_id(),
+                )
             };
             if last_status.as_ref() != Some(&status) {
                 changed = true;
                 last_status = Some(status);
+            }
+            if last_workspace != Some(workspace_id) {
+                changed = true;
+                last_workspace = Some(workspace_id);
             }
             let agent_ids = agents.iter().map(|agent| agent.id).collect::<Vec<_>>();
             let unread_counts = {
