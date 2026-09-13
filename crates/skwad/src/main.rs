@@ -251,6 +251,16 @@ fn unread_counts_snapshot(
         .collect()
 }
 
+fn apply_terminal_status(
+    store: &Arc<Mutex<skwad_agents::AgentStore>>,
+    agent_id: Uuid,
+    state: skwad_agents::AgentState,
+) {
+    if let Ok(mut store) = store.lock() {
+        store.set_state(agent_id, state);
+    }
+}
+
 struct Shell {
     store: Arc<Mutex<skwad_agents::AgentStore>>,
     settings: skwad_core::Settings,
@@ -294,26 +304,30 @@ impl Shell {
         let buffer = Arc::new(Mutex::new(OutputBuffer::default()));
         let buffer_sink = Arc::clone(&buffer);
         self.buffers.insert(id, Arc::clone(&buffer));
+        let status_store = Arc::clone(&self.store);
+        let status_sink = EventSink {
+            on_status: Some(Box::new(move |event| {
+                apply_terminal_status(&status_store, id, event.status);
+            })),
+            ..Default::default()
+        };
 
         // `spawn_pty` runs `tokio::spawn` for the activity tracker; the UI
         // thread has no tokio runtime of its own, so enter ours around the
         // spawn. The drop of the guard just exits the context; the spawned
         // task keeps running on the runtime's worker threads.
         let _runtime_guard = self.runtime.enter();
-        let session = TerminalSession::<PtyTransport>::spawn_pty(
-            &config,
-            EventSink::default(),
-            move |bytes| {
+        let session =
+            TerminalSession::<PtyTransport>::spawn_pty(&config, status_sink, move |bytes| {
                 if let Ok(mut guard) = buffer_sink.lock() {
                     guard.bytes.extend_from_slice(bytes);
                 }
-            },
-        )
-        .and_then(|mut session| {
-            let plan = SessionPlan::build(&config);
-            session.start(&plan)?;
-            Ok(session)
-        });
+            })
+            .and_then(|mut session| {
+                let plan = SessionPlan::build(&config);
+                session.start(&plan)?;
+                Ok(session)
+            });
 
         match session {
             Ok(session) => {
@@ -960,6 +974,20 @@ mod tests {
         let model = layout_model(&store, None, &[], &unread_counts);
 
         assert_eq!(model.selected_agent_rows[0].unread_count, 3);
+    }
+
+    #[test]
+    fn terminal_status_updates_the_shared_agent_store() {
+        let mut store = skwad_agents::AgentStore::new();
+        let id = store.create("~/alpha", skwad_agents::CreateOptions::default());
+        let shared = Arc::new(Mutex::new(store));
+
+        apply_terminal_status(&shared, id, skwad_agents::AgentState::Running);
+
+        assert_eq!(
+            shared.lock().unwrap().agent(id).unwrap().state,
+            skwad_agents::AgentState::Running
+        );
     }
 
     #[test]
