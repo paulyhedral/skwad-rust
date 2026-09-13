@@ -4,84 +4,88 @@
 
 # Skwad
 
-Meet your new, slightly revolutionary coding crew. Skwad is a macOS app that runs a whole team of AI coding agents—each in its own embedded terminal—and lets them coordinate work themselves so you can get real, parallel progress without tab chaos.
+Skwad is a desktop app for running and coordinating multiple AI coding agents. Each agent gets its own terminal session, workspace, status, and MCP connection.
 
-![macOS](https://img.shields.io/badge/macOS-14.0+-blue)
-![Swift](https://img.shields.io/badge/Swift-5.9+-orange)
+This repository is moving Skwad from its original Swift/macOS implementation to a cross-platform Rust application built with [GPUI-Kit](https://github.com/longbridge/gpui-kit). The Swift app remains in the repository as the behavioral reference while the Rust port is developed crate by crate.
+
+![Rust](https://img.shields.io/badge/Rust-2024-orange)
+![GPUI-Kit](https://img.shields.io/badge/UI-GPUI--Kit-blue)
 ![License](https://img.shields.io/badge/License-AGPL--3.0-green)
 [![Downloads](https://img.shields.io/github/downloads/paulyhedral/skwad-rust/total.svg?color=orange)](https://tooomm.github.io/github-release-stats/?username=paulyhedral&repository=skwad-rust)
 
-## Why Skwad
+## Current State
 
-- **Feels like a control room:** your agents are always visible, always alive, always ready.
-- **Fast, native, fluid:** GPU‑accelerated Ghostty terminals and a UI that keeps up.
-- **Actually collaborative:** built‑in MCP lets agents coordinate work themselves and hand off tasks.
-- **Git without context switching:** diff, stage, commit, and stay in flow.
+The Rust application currently provides a GPUI shell with workspace and agent management, PTY-backed terminal sessions, agent activity tracking, MCP messaging, agent hooks, persisted settings, repository discovery, and Git operations.
+
+The port is in progress. The Rust UI and backend are usable for the implemented slices, while several features from the Swift app are still being ported.
 
 ## Features
 
-- **Multi-agent management** - Run multiple AI coding agents simultaneously (Claude Code, Codex, OpenCode, Gemini CLI, GitHub Copilot, or custom)
-- **GPU-accelerated terminals** - Powered by [libghostty](https://github.com/ghostty-org/ghostty), with SwiftTerm fallback
-- **Agent-to-agent communication** - Built-in MCP server for inter-agent messaging and coordination
-- **Markdown preview** - View plans and documentation in a themed panel with dark mode support
-- **Git integration** - Worktree support, repo discovery, diff viewer, stage/commit panel
-- **Activity detection** - See which agents are working or idle at a glance
+- Run multiple AI coding agents in separate terminal sessions.
+- Create, rename, select, close, restart, and reattach agents and workspaces.
+- Track working, idle, awaiting-input, and error states.
+- Coordinate agents through a local MCP server and agent-to-agent messaging.
+- Persist agents, workspaces, personas, and settings.
+- Discover repositories and linked Git worktrees.
+- Parse Git status, diffs, and change statistics.
+- Support Claude Code, Codex, Gemini CLI, GitHub Copilot, OpenCode, shell agents, and custom commands through the launch configuration.
+
+## Repository Layout
+
+- `crates/skwad/` - GPUI-Kit desktop application and shell UI.
+- `crates/skwad-core/` - Settings, persisted records, localization, and shared types.
+- `crates/skwad-agents/` - Agent state and workspace management.
+- `crates/skwad-terminal/` - PTY sessions and terminal activity integration.
+- `crates/skwad-activity/` - Activity detection and idle tracking.
+- `crates/skwad-mcp/` - Local MCP HTTP server and hook routes.
+- `crates/skwad-mcp-tools/` - MCP tool catalog.
+- `crates/skwad-messaging/` - Agent-to-agent message routing and unread state.
+- `crates/skwad-discovery/` - Repository and worktree discovery.
+- `crates/skwad-git/` - Runtime-agnostic Git operations and parsers.
+- `crates/skwad-history/` - Conversation history providers and cache.
+- `crates/skwad-watch/` - Debounced filesystem watching.
+- `Skwad/` and `SkwadTests/` - Original Swift/macOS implementation and behavioral reference.
+- `openspec/` - Contracts and implementation changes for the Rust port.
 
 ## Requirements
 
-- macOS 14.0 (Sonoma) or later
-- [Zig](https://ziglang.org/) (only if building libghostty from source)
-- An AI coding CLI (e.g., [Claude Code](https://github.com/anthropics/claude-code))
+- Rust 1.98 or newer, using the toolchain in `rust-toolchain.toml`.
+- A supported desktop environment for GPUI-Kit. CI currently builds on macOS and Ubuntu.
+- An AI coding CLI such as [Claude Code](https://github.com/anthropics/claude-code), Codex, Gemini CLI, GitHub Copilot, or OpenCode.
+- Git 2.30 or newer for Git and worktree tests.
 
-## Building
+## Build And Test
 
 ```bash
 git clone https://github.com/paulyhedral/skwad-rust.git
-cd skwad-rust   
+cd skwad-rust
 
-# Download prebuilt libghostty (recommended)
-mkdir -p Vendor/libghostty/lib
-gh release download libs-v1 -p 'libghostty.a' -D Vendor/libghostty/lib
+# Run formatting, linting, tests, and the workspace build.
+make rust
 
-# Or build from source (requires Zig 0.15+)
-brew install zig
-sudo xcodebuild -downloadComponent MetalToolchain
-./scripts/build-libghostty.sh
-
-# Open and build in Xcode
-open Skwad.xcodeproj
+# Run individual checks.
+make rust-fmt
+make rust-lint
+make rust-test
+make rust-build
 ```
+
+To run the Rust desktop application directly:
+
+```bash
+cargo run -p skwad
+```
+
+The Swift reference app has separate Xcode and Makefile targets. Those targets are not required for Rust port development.
 
 ## Architecture
 
-See [AGENTS.md](AGENTS.md) for detailed architecture documentation.
+The Rust workspace keeps the UI, terminal runtime, MCP server, messaging, discovery, Git, and persistence concerns in separate crates. Contracts under `openspec/specs/` define the behavior being ported from Swift.
 
-## Dependencies
-
-- [libghostty](https://github.com/ghostty-org/ghostty) - GPU-accelerated terminal
-- [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) - Fallback terminal emulation
-- [Hummingbird](https://github.com/hummingbird-project/hummingbird) - HTTP server for MCP
-- [swift-log](https://github.com/apple/swift-log) - Logging
-
-## Maintainers
-
-- **Creator & Lead Maintainer:** [@nbonamy-kochava](https://github.com/nbonamy-kochava) (aka [@nbonamy](https://github.com/nbonamy))
+See [AGENTS.md](AGENTS.md) for development conventions and crate dependencies.
 
 ## License
 
-AGPL-3.0 — see [LICENSE](LICENSE) for details.
+AGPL-3.0, see [LICENSE](LICENSE) for details.
 
 Copyright (C) 2026 Kochava Studios
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published
-by the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
