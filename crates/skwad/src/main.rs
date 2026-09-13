@@ -44,6 +44,7 @@ struct AgentRow {
     selected: bool,
     attached: bool,
     state: skwad_agents::AgentState,
+    unread_count: usize,
 }
 
 /// User-facing label for the agent's automatic state-machine state, matching
@@ -67,6 +68,7 @@ fn layout_model(
     store: &skwad_agents::AgentStore,
     agent_selection: Option<Uuid>,
     attached_ids: &[Uuid],
+    unread_counts: &BTreeMap<Uuid, usize>,
 ) -> LayoutModel {
     let current = store.current_workspace_id();
     let workspace_rows = store
@@ -97,6 +99,7 @@ fn layout_model(
                     selected: Some(agent.id) == agent_selection,
                     attached: attached_ids.contains(&agent.id),
                     state: agent.state,
+                    unread_count: unread_counts.get(&agent.id).copied().unwrap_or(0),
                 })
                 .collect::<Vec<_>>()
         })
@@ -237,6 +240,17 @@ fn agent_status_snapshot(store: &skwad_agents::AgentStore) -> Vec<AgentStatusKey
         .collect()
 }
 
+fn unread_counts_snapshot(
+    messages: &skwad_messaging::MessageStore,
+    agent_ids: &[Uuid],
+) -> BTreeMap<Uuid, usize> {
+    agent_ids
+        .iter()
+        .copied()
+        .map(|id| (id, messages.unread_count(id)))
+        .collect()
+}
+
 struct Shell {
     store: Arc<Mutex<skwad_agents::AgentStore>>,
     settings: skwad_core::Settings,
@@ -247,6 +261,7 @@ struct Shell {
     input_subscription: Option<Subscription>,
     notifier: Arc<QueuedNotifier>,
     delivery_notice: Option<DeliveryNotice>,
+    messages: Arc<Mutex<skwad_messaging::MessageStore>>,
     /// The terminal/tracker background tasks (`TerminalSession::spawn_pty`
     /// calls `tokio::spawn`) need a runtime, but the UI thread only carries
     /// gpui's own executor. `attach_session` enters this one around each
@@ -342,7 +357,14 @@ impl Render for Shell {
         let attached_ids = self.sessions.keys().copied().collect::<Vec<_>>();
         let (model, terminal_model) = {
             let store = self.store.lock().unwrap();
-            let model = layout_model(&store, self.agent_selection, &attached_ids);
+            let agent_ids = store
+                .agents()
+                .iter()
+                .map(|agent| agent.id)
+                .collect::<Vec<_>>();
+            let messages = self.messages.lock().unwrap();
+            let unread_counts = unread_counts_snapshot(&messages, &agent_ids);
+            let model = layout_model(&store, self.agent_selection, &attached_ids, &unread_counts);
             let selected_buffer = self
                 .agent_selection
                 .and_then(|id| self.buffers.get(&id))
@@ -377,13 +399,18 @@ impl Render for Shell {
             .map(|row| {
                 let id = row.id;
                 let label = format!(
-                    "{} {} [{}] [{}] {}{}",
+                    "{} {} [{}] [{}] {}{}{}",
                     row.avatar,
                     row.name,
                     row.agent_type,
                     state_label(row.state),
                     row.folder,
-                    if row.attached { " (attached)" } else { "" }
+                    if row.attached { " (attached)" } else { "" },
+                    if row.unread_count > 0 {
+                        format!(" ({} unread)", row.unread_count)
+                    } else {
+                        String::new()
+                    }
                 );
                 Button::new(id.to_string())
                     .label(label)
@@ -443,6 +470,7 @@ impl Render for Shell {
 async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
     let mut seen = BTreeMap::<Uuid, usize>::new();
     let mut last_status: Option<Vec<AgentStatusKey>> = None;
+    let mut last_unread: Option<BTreeMap<Uuid, usize>> = None;
     loop {
         cx.background_executor().timer(OUTPUT_POLL_INTERVAL).await;
         if weak.upgrade().is_none() {
@@ -472,6 +500,15 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
             if last_status.as_ref() != Some(&status) {
                 changed = true;
                 last_status = Some(status);
+            }
+            let agent_ids = agents.iter().map(|agent| agent.id).collect::<Vec<_>>();
+            let unread_counts = {
+                let messages = entity.read(app).messages.lock().unwrap();
+                unread_counts_snapshot(&messages, &agent_ids)
+            };
+            if last_unread.as_ref() != Some(&unread_counts) {
+                changed = true;
+                last_unread = Some(unread_counts);
             }
             let events = entity.read(app).notifier.drain();
             let notice = delivery_notice(&events, &agents);
@@ -505,6 +542,7 @@ fn start_mcp_server(
     agents: Arc<Mutex<skwad_agents::AgentStore>>,
     settings: skwad_core::Settings,
     notifier: Arc<QueuedNotifier>,
+    messages: Arc<Mutex<skwad_messaging::MessageStore>>,
 ) {
     std::thread::spawn(move || {
         let runtime = match tokio::runtime::Runtime::new() {
@@ -529,6 +567,7 @@ fn start_mcp_server(
 
             let catalog = Arc::new(
                 skwad_mcp_tools::McpToolCatalog::new(agents, repos_rx, notifier)
+                    .with_message_store(messages)
                     .with_settings(settings.clone()),
             );
             catalog.set_bench_agents(settings.bench_agents.clone());
@@ -562,7 +601,13 @@ fn main() {
     let settings = skwad_core::Settings::load().unwrap_or_default();
     let store = Arc::new(Mutex::new(build_agent_store(&settings)));
     let notifier = Arc::new(QueuedNotifier::new());
-    start_mcp_server(Arc::clone(&store), settings.clone(), Arc::clone(&notifier));
+    let messages = Arc::new(Mutex::new(skwad_messaging::MessageStore::new()));
+    start_mcp_server(
+        Arc::clone(&store),
+        settings.clone(),
+        Arc::clone(&notifier),
+        Arc::clone(&messages),
+    );
 
     gpui_kit::application().run(move |cx| {
         gpui_kit::init(cx);
@@ -591,6 +636,7 @@ fn main() {
                     input_subscription: None,
                     notifier: Arc::clone(&notifier),
                     delivery_notice: None,
+                    messages: Arc::clone(&messages),
                     runtime,
                 });
                 let subscription_target = view.downgrade();
@@ -644,7 +690,7 @@ mod tests {
     #[test]
     fn empty_store_has_no_rows() {
         let store = skwad_agents::AgentStore::new();
-        let model = layout_model(&store, None, &[]);
+        let model = layout_model(&store, None, &[], &BTreeMap::new());
         assert!(model.workspace_rows.is_empty());
         assert!(model.selected_agent_rows.is_empty());
     }
@@ -665,7 +711,7 @@ mod tests {
         store.create("~/gamma", skwad_agents::CreateOptions::default());
 
         store.set_current_workspace(ws1.id);
-        let model = layout_model(&store, None, &[]);
+        let model = layout_model(&store, None, &[], &BTreeMap::new());
 
         assert_eq!(model.workspace_rows.len(), 2);
         assert!(
@@ -703,7 +749,7 @@ mod tests {
         store.set_current_workspace(ws.id);
         store.create("~/alpha", skwad_agents::CreateOptions::default());
 
-        let model = layout_model(&store, None, &[]);
+        let model = layout_model(&store, None, &[], &BTreeMap::new());
         assert_eq!(model.selected_agent_rows.len(), 1);
         assert_eq!(model.selected_agent_rows[0].name, "alpha");
     }
@@ -717,7 +763,7 @@ mod tests {
         let alpha_id = store.create("~/alpha", skwad_agents::CreateOptions::default());
         store.create("~/beta", skwad_agents::CreateOptions::default());
 
-        let model = layout_model(&store, Some(alpha_id), &[]);
+        let model = layout_model(&store, Some(alpha_id), &[], &BTreeMap::new());
         let alpha = model
             .selected_agent_rows
             .iter()
@@ -733,7 +779,7 @@ mod tests {
             .unwrap();
         assert!(!beta.selected);
 
-        let model = layout_model(&store, Some(alpha_id), &[alpha_id]);
+        let model = layout_model(&store, Some(alpha_id), &[alpha_id], &BTreeMap::new());
         assert!(
             model
                 .selected_agent_rows
@@ -764,7 +810,7 @@ mod tests {
         let id = store.create("~/alpha", skwad_agents::CreateOptions::default());
         store.set_state(id, skwad_agents::AgentState::Input);
 
-        let model = layout_model(&store, None, &[]);
+        let model = layout_model(&store, None, &[], &BTreeMap::new());
         assert_eq!(
             model.selected_agent_rows[0].state,
             skwad_agents::AgentState::Input
@@ -883,6 +929,37 @@ mod tests {
         }];
 
         assert_eq!(delivery_notice(&events, store.agents()), None);
+    }
+
+    #[test]
+    fn unread_counts_snapshot_includes_zero_and_ignores_other_agents() {
+        let mut messages = skwad_messaging::MessageStore::new();
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+        let other = Uuid::new_v4();
+        messages.add(skwad_messaging::Message::new(other, first, "one"));
+        messages.add(skwad_messaging::Message::new(other, first, "two"));
+        messages.add(skwad_messaging::Message::new(other, other, "unrelated"));
+
+        let counts = unread_counts_snapshot(&messages, &[first, second]);
+
+        assert_eq!(counts.get(&first), Some(&2));
+        assert_eq!(counts.get(&second), Some(&0));
+        assert!(!counts.contains_key(&other));
+    }
+
+    #[test]
+    fn layout_model_carries_unread_count_into_agent_rows() {
+        let mut store = skwad_agents::AgentStore::new();
+        let ws = workspace("One");
+        store.add_workspace(ws.clone());
+        store.set_current_workspace(ws.id);
+        let id = store.create("~/alpha", skwad_agents::CreateOptions::default());
+        let unread_counts = BTreeMap::from([(id, 3)]);
+
+        let model = layout_model(&store, None, &[], &unread_counts);
+
+        assert_eq!(model.selected_agent_rows[0].unread_count, 3);
     }
 
     #[test]
