@@ -1158,7 +1158,23 @@ impl Render for WorkspaceWindow {
 
         let agent_rows = agents.into_iter().map(|(id, avatar, name, folder)| {
             Button::new(format!("workspace-agent-{id}"))
-                .label(format!("{avatar}  {name}\n{folder}"))
+                .h(px(76.))
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap_2()
+                        .child(div().text_lg().child(format!("{avatar}  {name}")))
+                        .child(
+                            div()
+                                .w_full()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .child(folder),
+                        ),
+                )
                 .selected(self.selected_agent == Some(id))
                 .on_click(cx.listener(move |view, _: &ClickEvent, _window, cx| {
                     view.selected_agent = Some(id);
