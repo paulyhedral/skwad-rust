@@ -852,9 +852,9 @@ impl WorkspaceWindow {
         let options = agent_window_options(cx);
         let _ = cx.open_window(options, move |window, cx| {
             let name_input =
-                cx.new(|cx| InputState::new(window, cx).placeholder("Agent name (optional)"));
+                cx.new(|cx| InputState::new(window, cx).placeholder("Name (optional)"));
             let shell_command_input =
-                cx.new(|cx| InputState::new(window, cx).placeholder("Optional shell command"));
+                cx.new(|cx| InputState::new(window, cx).placeholder("Shell command"));
             let view = cx.new(|_| AgentEditor {
                 store,
                 settings,
@@ -946,59 +946,50 @@ impl AgentEditor {
 
 impl Render for AgentEditor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let editor = cx.entity();
+        let personas = self.settings.personas.clone();
         v_flex()
             .size_full()
             .gap_3()
             .p_5()
             .bg(cx.theme().background)
+            .child(div().text_xl().child("New Agent"))
             .child(
-                v_flex()
-                    .gap_1()
-                    .child(div().text_xl().child("New Agent"))
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("Add a new Claude to your skwad"),
-                    ),
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("add a new agent to your skwad"),
             )
             .child(
-                v_flex()
+                h_flex()
                     .gap_2()
-                    .p_3()
-                    .rounded(cx.theme().radius)
-                    .bg(cx.theme().muted)
-                    .child(div().text_sm().child("Agent details"))
-                    .child(Input::new(&self.name_input).h_full())
+                    .child(div().w(px(100.)).text_right().child("Name"))
+                    .child(Input::new(&self.name_input).flex_1())
                     .child(
                         Button::new("agent-avatar-picker")
-                            .label(format!("Avatar: {}", self.avatar))
+                            .label(self.avatar.clone())
+                            .tooltip("Choose avatar")
                             .dropdown_menu({
-                                let editor = cx.entity();
+                                let editor = editor.clone();
                                 move |menu, _, _| {
                                     menu.item(PopupMenuItem::new("🤖 Robot").on_click({
                                         let editor = editor.clone();
                                         move |_, _, app| {
-                                            editor.update(app, |editor, _| {
-                                                editor.avatar = "🤖".to_string()
-                                            });
+                                            editor.update(app, |e, _| e.avatar = "🤖".to_string())
                                         }
                                     }))
                                     .item(PopupMenuItem::new("🧠 Brain").on_click({
                                         let editor = editor.clone();
                                         move |_, _, app| {
-                                            editor.update(app, |editor, _| {
-                                                editor.avatar = "🧠".to_string()
-                                            });
+                                            editor.update(app, |e, _| e.avatar = "🧠".to_string())
                                         }
                                     }))
                                     .item(
                                         PopupMenuItem::new("💻 Computer").on_click({
                                             let editor = editor.clone();
                                             move |_, _, app| {
-                                                editor.update(app, |editor, _| {
-                                                    editor.avatar = "💻".to_string()
-                                                });
+                                                editor
+                                                    .update(app, |e, _| e.avatar = "💻".to_string())
                                             }
                                         }),
                                     )
@@ -1007,71 +998,72 @@ impl Render for AgentEditor {
                     ),
             )
             .child(
-                v_flex()
+                h_flex()
                     .gap_2()
-                    .p_3()
-                    .rounded(cx.theme().radius)
-                    .bg(cx.theme().muted)
-                    .child(div().text_sm().child("Coding agent"))
+                    .child(div().w(px(100.)).text_right().child("Coding agent"))
                     .child(
                         Button::new("agent-type-picker")
-                            .label(format!("Coding agent: {}", self.agent_type))
+                            .label(self.agent_type.clone())
                             .dropdown_menu({
-                                let editor = cx.entity();
+                                let editor = editor.clone();
                                 move |menu, _, _| {
                                     menu.item(PopupMenuItem::new("Claude").on_click({
                                         let editor = editor.clone();
                                         move |_, _, app| {
-                                            editor.update(app, |editor, _| {
-                                                editor.agent_type = "claude".to_string()
-                                            });
+                                            editor.update(app, |e, _| {
+                                                e.agent_type = "claude".to_string()
+                                            })
                                         }
                                     }))
                                     .item(PopupMenuItem::new("Codex").on_click({
                                         let editor = editor.clone();
                                         move |_, _, app| {
-                                            editor.update(app, |editor, _| {
-                                                editor.agent_type = "codex".to_string()
-                                            });
+                                            editor.update(app, |e, _| {
+                                                e.agent_type = "codex".to_string()
+                                            })
                                         }
                                     }))
                                     .item(
                                         PopupMenuItem::new("Shell").on_click({
                                             let editor = editor.clone();
                                             move |_, _, app| {
-                                                editor.update(app, |editor, _| {
-                                                    editor.agent_type = "shell".to_string()
-                                                });
+                                                editor.update(app, |e, _| {
+                                                    e.agent_type = "shell".to_string()
+                                                })
                                             }
                                         }),
                                     )
                                 }
                             }),
-                    )
-                    .child(Input::new(&self.shell_command_input).h_full())
+                    ),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(div().w(px(100.)).text_right().child("Command"))
+                    .child(Input::new(&self.shell_command_input).flex_1()),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(div().w(px(100.)).text_right().child("Persona"))
                     .child(
                         Button::new("agent-persona-picker")
-                            .label(self.persona_id.map_or_else(
-                                || "Persona: None".to_string(),
-                                |id| format!("Persona: {}", id),
-                            ))
-                            .dropdown_menu({
-                                let editor = cx.entity();
-                                let personas = self
-                                    .settings
-                                    .personas
-                                    .iter()
-                                    .filter(|persona| {
-                                        persona.state == skwad_core::PersonaState::Enabled
+                            .label(
+                                self.persona_id
+                                    .and_then(|id| {
+                                        personas.iter().find(|p| p.id == id).map(|p| p.name.clone())
                                     })
-                                    .cloned()
-                                    .collect::<Vec<_>>();
+                                    .unwrap_or_else(|| "None".to_string()),
+                            )
+                            .flex_1()
+                            .dropdown_menu({
+                                let editor = editor.clone();
                                 move |mut menu, _, _| {
                                     menu = menu.item(PopupMenuItem::new("None").on_click({
                                         let editor = editor.clone();
                                         move |_, _, app| {
-                                            editor
-                                                .update(app, |editor, _| editor.persona_id = None);
+                                            editor.update(app, |e, _| e.persona_id = None)
                                         }
                                     }));
                                     for persona in &personas {
@@ -1080,9 +1072,8 @@ impl Render for AgentEditor {
                                             PopupMenuItem::new(persona.name.clone()).on_click({
                                                 let editor = editor.clone();
                                                 move |_, _, app| {
-                                                    editor.update(app, |editor, _| {
-                                                        editor.persona_id = Some(id)
-                                                    });
+                                                    editor
+                                                        .update(app, |e, _| e.persona_id = Some(id))
                                                 }
                                             }),
                                         );
@@ -1093,33 +1084,24 @@ impl Render for AgentEditor {
                     ),
             )
             .child(
-                v_flex()
+                h_flex()
                     .gap_2()
-                    .p_3()
-                    .rounded(cx.theme().radius)
-                    .bg(cx.theme().muted)
-                    .child(div().text_sm().child("Folder"))
+                    .child(div().w(px(100.)).text_right().child("Folder"))
                     .child(
-                        h_flex()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(if self.folder_path.is_empty() {
-                                        "No folder selected".to_string()
-                                    } else {
-                                        self.folder_path.clone()
-                                    }),
-                            )
-                            .child(
-                                Button::new("choose-agent-folder")
-                                    .label("Choose...")
-                                    .on_click(cx.listener(|editor, _, _, cx| {
-                                        editor.choose_folder(cx);
-                                    })),
-                            ),
+                        div()
+                            .flex_1()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(if self.folder_path.is_empty() {
+                                "No folder selected".to_string()
+                            } else {
+                                self.folder_path.clone()
+                            }),
+                    )
+                    .child(
+                        Button::new("choose-agent-folder")
+                            .label("Choose...")
+                            .on_click(cx.listener(|editor, _, _, cx| editor.choose_folder(cx))),
                     ),
             )
             .children(
@@ -1140,9 +1122,9 @@ impl Render for AgentEditor {
                         Button::new("create-agent-editor")
                             .label("Add Agent")
                             .primary()
-                            .on_click(cx.listener(|editor, _, window, cx| {
-                                editor.create(window, cx);
-                            })),
+                            .on_click(
+                                cx.listener(|editor, _, window, cx| editor.create(window, cx)),
+                            ),
                     ),
             )
     }
@@ -2166,7 +2148,10 @@ fn start_mcp_server(
     stop
 }
 
-actions!(skwad_app, [Quit, HideApp, HideOthers, ShowAllWindows]);
+actions!(
+    skwad_app,
+    [Quit, HideApp, HideOthers, ShowAllWindows, AboutSkwad]
+);
 
 fn quit(_: &Quit, cx: &mut App) {
     cx.quit();
@@ -2184,9 +2169,24 @@ fn show_all_windows(_: &ShowAllWindows, cx: &mut App) {
     cx.activate(true);
 }
 
+fn about_skwad(_: &AboutSkwad, cx: &mut App) {
+    if let Some(window) = cx.active_window() {
+        let _ = window.update(cx, |_, window, cx| {
+            window.open_alert_dialog(cx, |alert, _, _| {
+                alert
+                    .title("About Skwad")
+                    .description("Skwad is a workspace for coordinating coding agents.")
+                    .show_cancel(false)
+            });
+        });
+    }
+}
+
 fn set_app_menus(cx: &mut App) {
     cx.set_menus([
         Menu::new("Skwad").items([
+            MenuItem::action("About Skwad", AboutSkwad),
+            MenuItem::separator(),
             MenuItem::os_submenu("Services", SystemMenuType::Services),
             MenuItem::separator(),
             MenuItem::action("Hide Skwad", HideApp),
@@ -2246,6 +2246,10 @@ fn main() {
             Theme::change(cx.window_appearance(), None, cx);
 
             cx.on_action(quit);
+            cx.on_action(about_skwad);
+            cx.on_action(hide_app);
+            cx.on_action(hide_others);
+            cx.on_action(show_all_windows);
             set_app_menus(cx);
 
             let options = manager_window_options(cx);
