@@ -163,6 +163,59 @@ impl AgentStore {
         true
     }
 
+    pub fn remove_workspace(&mut self, id: Uuid) -> bool {
+        if self.workspaces.len() <= 1 {
+            return false;
+        }
+        let Some(index) = self
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.id == id)
+        else {
+            return false;
+        };
+        let workspace = self.workspaces.remove(index);
+        for agent_id in workspace.agent_ids {
+            self.remove(agent_id);
+        }
+        if self.current_workspace_id == Some(id) {
+            self.current_workspace_id = self
+                .workspaces
+                .get(index.saturating_sub(1))
+                .or_else(|| self.workspaces.first())
+                .map(|workspace| workspace.id);
+        }
+        true
+    }
+
+    pub fn move_workspace_before(&mut self, id: Uuid, target_id: Uuid) -> bool {
+        if id == target_id {
+            return false;
+        }
+        let Some(source_index) = self
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.id == id)
+        else {
+            return false;
+        };
+        let Some(target_index) = self
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.id == target_id)
+        else {
+            return false;
+        };
+        let workspace = self.workspaces.remove(source_index);
+        let insertion_index = if source_index < target_index {
+            target_index - 1
+        } else {
+            target_index
+        };
+        self.workspaces.insert(insertion_index, workspace);
+        true
+    }
+
     /// The current workspace, creating the default "Skwad" workspace if none
     /// exists yet.
     fn ensure_current_workspace(&mut self) -> Uuid {
@@ -582,6 +635,42 @@ mod tests {
         assert_eq!(store.workspaces().len(), 1);
         assert_eq!(store.workspaces()[0].agent_ids, vec![agent_id]);
         assert_eq!(store.workspaces()[0].active_agent_ids, vec![agent_id]);
+    }
+
+    #[test]
+    fn workspace_reordering_moves_items_before_drop_target() {
+        let first = default_workspace(Vec::new());
+        let second = default_workspace(Vec::new());
+        let third = default_workspace(Vec::new());
+        let mut store = store();
+        store.add_workspace(first.clone());
+        store.add_workspace(second.clone());
+        store.add_workspace(third.clone());
+
+        assert!(store.move_workspace_before(third.id, first.id));
+        assert_eq!(
+            store
+                .workspaces()
+                .iter()
+                .map(|workspace| workspace.id)
+                .collect::<Vec<_>>(),
+            vec![third.id, first.id, second.id]
+        );
+    }
+
+    #[test]
+    fn removing_workspace_keeps_one_and_selects_a_remaining_workspace() {
+        let first = default_workspace(Vec::new());
+        let second = default_workspace(Vec::new());
+        let mut store = store();
+        store.add_workspace(first.clone());
+        store.add_workspace(second.clone());
+        store.set_current_workspace(first.id);
+
+        assert!(store.remove_workspace(first.id));
+        assert_eq!(store.current_workspace_id(), Some(second.id));
+        assert!(!store.remove_workspace(second.id));
+        assert_eq!(store.workspaces().len(), 1);
     }
 
     #[test]

@@ -7,13 +7,15 @@ use std::time::Duration;
 
 use gpui_kit::base::Selectable;
 use gpui_kit::base::{h_flex, v_flex};
-use gpui_kit::component::button::Button;
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::{
-    App, AppContext, AsyncApp, ClickEvent, Context, Entity, IntoElement, Menu, MenuItem,
-    ParentElement, Render, Styled, Subscription, WeakEntity, Window, WindowBounds, WindowOptions,
-    actions, div, px, size,
+    App, AppContext, AsyncApp, ClickEvent, Context, Entity, InteractiveElement, IntoElement, Menu,
+    MenuItem, ParentElement, PathPromptOptions, Render, StatefulInteractiveElement, Styled,
+    Subscription, SystemMenuType, WeakEntity, Window, WindowBounds, WindowOptions, actions, div,
+    px, size,
 };
 use skwad_activity::EventSink;
 use skwad_mcp::ToolCatalog;
@@ -605,6 +607,9 @@ impl Shell {
                 settings,
                 name_input,
                 editing_id: None,
+                workspace_dialog_id: None,
+                show_workspace_dialog: false,
+                delete_workspace_id: None,
                 error: None,
                 _mcp_stop: None,
             });
@@ -741,6 +746,14 @@ fn workspace_window_options(cx: &App) -> WindowOptions {
     }
 }
 
+fn agent_window_options(cx: &App) -> WindowOptions {
+    WindowOptions {
+        window_bounds: Some(WindowBounds::centered(size(px(520.), px(500.)), cx)),
+        window_min_size: Some(size(px(460.), px(460.))),
+        ..WindowOptions::default()
+    }
+}
+
 struct WorkspaceWindow {
     store: Arc<Mutex<skwad_agents::AgentStore>>,
     settings: skwad_core::Settings,
@@ -785,7 +798,7 @@ impl WorkspaceWindow {
         }
     }
 
-    fn create_agent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn create_agent(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let folder = self
             .new_agent_folder_input
             .read(cx)
@@ -795,7 +808,7 @@ impl WorkspaceWindow {
         if folder.is_empty() || !PathBuf::from(&folder).is_dir() {
             self.error = Some("Choose an existing agent folder.".to_string());
             cx.notify();
-            return;
+            return false;
         }
         let name = self
             .new_agent_name_input
@@ -829,9 +842,311 @@ impl WorkspaceWindow {
             input.clean(window, input_cx);
         });
         cx.notify();
+        true
+    }
+
+    fn open_new_agent_dialog(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let store = Arc::clone(&self.store);
+        let settings = self.settings.clone();
+        let workspace_id = self.workspace_id;
+        let options = agent_window_options(cx);
+        let _ = cx.open_window(options, move |window, cx| {
+            let name_input =
+                cx.new(|cx| InputState::new(window, cx).placeholder("Agent name (optional)"));
+            let shell_command_input =
+                cx.new(|cx| InputState::new(window, cx).placeholder("Optional shell command"));
+            let view = cx.new(|_| AgentEditor {
+                store,
+                settings,
+                workspace_id,
+                name_input,
+                shell_command_input,
+                folder_path: String::new(),
+                avatar: "🤖".to_string(),
+                agent_type: "claude".to_string(),
+                persona_id: None,
+                error: None,
+            });
+            cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
+        });
     }
 }
 
+struct AgentEditor {
+    store: Arc<Mutex<skwad_agents::AgentStore>>,
+    settings: skwad_core::Settings,
+    workspace_id: Uuid,
+    name_input: Entity<InputState>,
+    shell_command_input: Entity<InputState>,
+    folder_path: String,
+    avatar: String,
+    agent_type: String,
+    persona_id: Option<Uuid>,
+    error: Option<String>,
+}
+
+impl AgentEditor {
+    fn create(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let folder = self.folder_path.trim().to_string();
+        if folder.is_empty() || !PathBuf::from(&folder).is_dir() {
+            self.error = Some("Choose an existing agent folder.".to_string());
+            cx.notify();
+            return;
+        }
+        let name = self.name_input.read(cx).value().trim().to_string();
+        let avatar = self.avatar.clone();
+        let agent_type = self.agent_type.clone();
+        let shell_command = self.shell_command_input.read(cx).value().trim().to_string();
+        {
+            let mut store = self.store.lock().unwrap();
+            store.set_current_workspace(self.workspace_id);
+            store.create(
+                folder,
+                skwad_agents::CreateOptions {
+                    name: (!name.is_empty()).then_some(name),
+                    avatar: (!avatar.is_empty()).then_some(avatar),
+                    agent_type: (!agent_type.is_empty()).then_some(agent_type),
+                    shell_command: (!shell_command.is_empty()).then_some(shell_command),
+                    persona_id: self.persona_id,
+                    ..Default::default()
+                },
+            );
+            self.settings.saved_agents = store.saved_agents();
+            self.settings.saved_workspaces = store.saved_workspaces();
+        }
+        let _ = self.settings.persist();
+        window.remove_window();
+    }
+
+    fn choose_folder(&mut self, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("Choose Agent Folder".into()),
+        });
+        let editor = cx.entity();
+        cx.spawn(async move |_this, cx| {
+            let Ok(Ok(Some(paths))) = receiver.await else {
+                return;
+            };
+            let Some(path) = paths.into_iter().next() else {
+                return;
+            };
+            cx.update(|app| {
+                editor.update(app, |editor, cx| {
+                    editor.folder_path = path.to_string_lossy().into_owned();
+                    cx.notify();
+                });
+            });
+        })
+        .detach();
+    }
+}
+
+impl Render for AgentEditor {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .size_full()
+            .gap_3()
+            .p_5()
+            .bg(cx.theme().background)
+            .child(
+                v_flex()
+                    .gap_1()
+                    .child(div().text_xl().child("New Agent"))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("Add a new Claude to your skwad"),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .p_3()
+                    .rounded(cx.theme().radius)
+                    .bg(cx.theme().muted)
+                    .child(div().text_sm().child("Agent details"))
+                    .child(Input::new(&self.name_input).h_full())
+                    .child(
+                        Button::new("agent-avatar-picker")
+                            .label(format!("Avatar: {}", self.avatar))
+                            .dropdown_menu({
+                                let editor = cx.entity();
+                                move |menu, _, _| {
+                                    menu.item(PopupMenuItem::new("🤖 Robot").on_click({
+                                        let editor = editor.clone();
+                                        move |_, _, app| {
+                                            editor.update(app, |editor, _| {
+                                                editor.avatar = "🤖".to_string()
+                                            });
+                                        }
+                                    }))
+                                    .item(PopupMenuItem::new("🧠 Brain").on_click({
+                                        let editor = editor.clone();
+                                        move |_, _, app| {
+                                            editor.update(app, |editor, _| {
+                                                editor.avatar = "🧠".to_string()
+                                            });
+                                        }
+                                    }))
+                                    .item(
+                                        PopupMenuItem::new("💻 Computer").on_click({
+                                            let editor = editor.clone();
+                                            move |_, _, app| {
+                                                editor.update(app, |editor, _| {
+                                                    editor.avatar = "💻".to_string()
+                                                });
+                                            }
+                                        }),
+                                    )
+                                }
+                            }),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .p_3()
+                    .rounded(cx.theme().radius)
+                    .bg(cx.theme().muted)
+                    .child(div().text_sm().child("Coding agent"))
+                    .child(
+                        Button::new("agent-type-picker")
+                            .label(format!("Coding agent: {}", self.agent_type))
+                            .dropdown_menu({
+                                let editor = cx.entity();
+                                move |menu, _, _| {
+                                    menu.item(PopupMenuItem::new("Claude").on_click({
+                                        let editor = editor.clone();
+                                        move |_, _, app| {
+                                            editor.update(app, |editor, _| {
+                                                editor.agent_type = "claude".to_string()
+                                            });
+                                        }
+                                    }))
+                                    .item(PopupMenuItem::new("Codex").on_click({
+                                        let editor = editor.clone();
+                                        move |_, _, app| {
+                                            editor.update(app, |editor, _| {
+                                                editor.agent_type = "codex".to_string()
+                                            });
+                                        }
+                                    }))
+                                    .item(
+                                        PopupMenuItem::new("Shell").on_click({
+                                            let editor = editor.clone();
+                                            move |_, _, app| {
+                                                editor.update(app, |editor, _| {
+                                                    editor.agent_type = "shell".to_string()
+                                                });
+                                            }
+                                        }),
+                                    )
+                                }
+                            }),
+                    )
+                    .child(Input::new(&self.shell_command_input).h_full())
+                    .child(
+                        Button::new("agent-persona-picker")
+                            .label(self.persona_id.map_or_else(
+                                || "Persona: None".to_string(),
+                                |id| format!("Persona: {}", id),
+                            ))
+                            .dropdown_menu({
+                                let editor = cx.entity();
+                                let personas = self
+                                    .settings
+                                    .personas
+                                    .iter()
+                                    .filter(|persona| {
+                                        persona.state == skwad_core::PersonaState::Enabled
+                                    })
+                                    .cloned()
+                                    .collect::<Vec<_>>();
+                                move |mut menu, _, _| {
+                                    menu = menu.item(PopupMenuItem::new("None").on_click({
+                                        let editor = editor.clone();
+                                        move |_, _, app| {
+                                            editor
+                                                .update(app, |editor, _| editor.persona_id = None);
+                                        }
+                                    }));
+                                    for persona in &personas {
+                                        let id = persona.id;
+                                        menu = menu.item(
+                                            PopupMenuItem::new(persona.name.clone()).on_click({
+                                                let editor = editor.clone();
+                                                move |_, _, app| {
+                                                    editor.update(app, |editor, _| {
+                                                        editor.persona_id = Some(id)
+                                                    });
+                                                }
+                                            }),
+                                        );
+                                    }
+                                    menu
+                                }
+                            }),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .p_3()
+                    .rounded(cx.theme().radius)
+                    .bg(cx.theme().muted)
+                    .child(div().text_sm().child("Folder"))
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(if self.folder_path.is_empty() {
+                                        "No folder selected".to_string()
+                                    } else {
+                                        self.folder_path.clone()
+                                    }),
+                            )
+                            .child(
+                                Button::new("choose-agent-folder")
+                                    .label("Choose...")
+                                    .on_click(cx.listener(|editor, _, _, cx| {
+                                        editor.choose_folder(cx);
+                                    })),
+                            ),
+                    ),
+            )
+            .children(
+                self.error
+                    .as_ref()
+                    .map(|error| div().text_sm().child(error.clone())),
+            )
+            .child(
+                h_flex()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        Button::new("cancel-agent-editor")
+                            .label("Cancel")
+                            .on_click(|_, window, _| window.remove_window()),
+                    )
+                    .child(
+                        Button::new("create-agent-editor")
+                            .label("Add Agent")
+                            .primary()
+                            .on_click(cx.listener(|editor, _, window, cx| {
+                                editor.create(window, cx);
+                            })),
+                    ),
+            )
+    }
+}
 impl Render for WorkspaceWindow {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (workspace_name, agents) = {
@@ -880,24 +1195,9 @@ impl Render for WorkspaceWindow {
             })
             .unwrap_or_else(|| "Choose an agent from the sidebar".to_string());
 
-        let new_agent_form = if self.show_new_agent {
-            v_flex()
-                .gap_2()
-                .child(Input::new(&self.new_agent_folder_input).h_full())
-                .child(Input::new(&self.new_agent_name_input).h_full())
-                .child(
-                    Button::new("create-workspace-agent")
-                        .label("Create")
-                        .on_click(cx.listener(|view, _: &ClickEvent, window, cx| {
-                            view.create_agent(window, cx);
-                        })),
-                )
-        } else {
-            v_flex()
-        };
-
         h_flex()
             .size_full()
+            .relative()
             .bg(cx.theme().background)
             .child(
                 v_flex()
@@ -917,22 +1217,21 @@ impl Render for WorkspaceWindow {
                                     .child("Workspace"),
                             ),
                     )
-                    .child(
-                        Button::new("workspace-new-agent")
-                            .label("+  New Agent")
-                            .on_click(cx.listener(|view, _: &ClickEvent, _window, cx| {
-                                view.show_new_agent = true;
-                                view.error = None;
-                                cx.notify();
-                            })),
-                    )
-                    .child(new_agent_form)
+                    .children(agent_rows)
+                    .child(div().flex_1())
                     .children(
                         self.error
                             .as_ref()
                             .map(|error| div().text_sm().child(error.clone())),
                     )
-                    .children(agent_rows),
+                    .child(
+                        Button::new("workspace-new-agent")
+                            .icon(IconName::Plus)
+                            .tooltip("New agent")
+                            .on_click(cx.listener(|view, _: &ClickEvent, window, cx| {
+                                view.open_new_agent_dialog(window, cx);
+                            })),
+                    ),
             )
             .child(
                 v_flex()
@@ -979,8 +1278,22 @@ struct WorkspaceManager {
     settings: skwad_core::Settings,
     name_input: Entity<InputState>,
     editing_id: Option<Uuid>,
+    workspace_dialog_id: Option<Uuid>,
+    show_workspace_dialog: bool,
+    delete_workspace_id: Option<Uuid>,
     error: Option<String>,
     _mcp_stop: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+#[derive(Clone)]
+struct WorkspaceDrag(Uuid);
+
+struct WorkspaceDragPreview;
+
+impl Render for WorkspaceDragPreview {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div().p_2().child("Workspace")
+    }
 }
 
 impl WorkspaceManager {
@@ -996,15 +1309,20 @@ impl WorkspaceManager {
         }
     }
 
-    fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let name = self.name_input.read(cx).value().trim().to_string();
+    fn save_name(
+        &mut self,
+        name: String,
+        editing_id: Option<Uuid>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if name.is_empty() {
             self.error = Some("Workspace name cannot be empty.".to_string());
             cx.notify();
             return;
         }
         let mut store = self.store.lock().unwrap();
-        if let Some(id) = self.editing_id {
+        if let Some(id) = editing_id {
             if !store.rename_workspace(id, name) {
                 self.error = Some("Workspace no longer exists.".to_string());
                 cx.notify();
@@ -1037,117 +1355,317 @@ impl WorkspaceManager {
         cx.notify();
     }
 
-    fn edit(&mut self, id: Uuid, window: &mut Window, cx: &mut Context<Self>) {
-        let name = self
-            .store
-            .lock()
-            .unwrap()
-            .workspaces()
-            .iter()
-            .find(|workspace| workspace.id == id)
-            .map(|workspace| workspace.name.clone());
-        let Some(name) = name else {
-            return;
-        };
-        self.editing_id = Some(id);
+    fn open_workspace_dialog(
+        &mut self,
+        editing_id: Option<Uuid>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = editing_id
+            .and_then(|id| {
+                self.store.lock().ok().and_then(|store| {
+                    store
+                        .workspaces()
+                        .iter()
+                        .find(|workspace| workspace.id == id)
+                        .map(|workspace| workspace.name.clone())
+                })
+            })
+            .unwrap_or_default();
+        self.workspace_dialog_id = editing_id;
+        self.show_workspace_dialog = true;
         self.error = None;
         cx.update_entity(&self.name_input, |input, input_cx| {
             input.set_value(name, window, input_cx);
         });
         cx.notify();
     }
+
+    fn cancel_workspace_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.workspace_dialog_id = None;
+        self.show_workspace_dialog = false;
+        self.error = None;
+        cx.update_entity(&self.name_input, |input, input_cx| {
+            input.clean(window, input_cx);
+        });
+        cx.notify();
+    }
+
+    fn confirm_workspace_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self.name_input.read(cx).value().trim().to_string();
+        let editing_id = self.workspace_dialog_id;
+        self.save_name(name, editing_id, window, cx);
+        if self.error.is_none() {
+            self.workspace_dialog_id = None;
+            self.show_workspace_dialog = false;
+        }
+        cx.notify();
+    }
+
+    fn delete(&mut self, id: Uuid, cx: &mut Context<Self>) {
+        if !self.store.lock().unwrap().remove_workspace(id) {
+            self.error = Some("At least one workspace must remain.".to_string());
+        } else {
+            self.persist();
+            self.error = None;
+        }
+        cx.notify();
+    }
+
+    fn request_delete(&mut self, id: Uuid, cx: &mut Context<Self>) {
+        self.delete_workspace_id = Some(id);
+        self.error = None;
+        cx.notify();
+    }
+
+    fn cancel_delete(&mut self, cx: &mut Context<Self>) {
+        self.delete_workspace_id = None;
+        cx.notify();
+    }
+
+    fn confirm_delete(&mut self, cx: &mut Context<Self>) {
+        let Some(id) = self.delete_workspace_id.take() else {
+            return;
+        };
+        self.delete(id, cx);
+    }
+
+    fn move_before(&mut self, id: Uuid, target_id: Uuid, cx: &mut Context<Self>) {
+        if self
+            .store
+            .lock()
+            .unwrap()
+            .move_workspace_before(id, target_id)
+        {
+            self.persist();
+            cx.notify();
+        }
+    }
+
+    fn select(&mut self, id: Uuid, cx: &mut Context<Self>) {
+        self.store.lock().unwrap().set_current_workspace(id);
+        cx.notify();
+    }
+
+    fn open(&mut self, id: Uuid, cx: &mut Context<Self>) {
+        self.select(id, cx);
+        WorkspaceWindow::open(Arc::clone(&self.store), self.settings.clone(), id, cx);
+    }
 }
 
 impl Render for WorkspaceManager {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let workspaces = self.store.lock().unwrap().workspaces().to_vec();
+        let delete_name = self.delete_workspace_id.and_then(|id| {
+            workspaces
+                .iter()
+                .find(|workspace| workspace.id == id)
+                .map(|workspace| workspace.name.clone())
+        });
         let rows = workspaces.into_iter().map(|workspace| {
             let id = workspace.id;
+            let agent_count = workspace.agent_ids.len();
+            let selected = self.store.lock().unwrap().current_workspace_id() == Some(id);
             h_flex()
+                .id(format!("workspace-row-{id}"))
+                .on_drop(
+                    cx.listener(move |manager, drag: &WorkspaceDrag, _window, cx| {
+                        manager.move_before(drag.0, id, cx);
+                    }),
+                )
                 .w_full()
                 .items_center()
                 .gap_3()
                 .p_3()
                 .rounded(cx.theme().radius)
-                .bg(cx.theme().muted)
+                .bg(if selected {
+                    cx.theme().muted
+                } else {
+                    cx.theme().transparent
+                })
                 .child(
-                    Button::new(format!("select-managed-workspace-{id}"))
-                        .label(format!(
-                            "{}  {} agents",
-                            workspace.name,
-                            workspace.agent_ids.len()
-                        ))
+                    v_flex()
                         .flex_1()
-                        .on_click(cx.listener(move |manager, _: &ClickEvent, _window, cx| {
-                            manager.store.lock().unwrap().set_current_workspace(id);
-                            cx.notify();
-                        })),
+                        .gap_1()
+                        .child(div().text_lg().child(workspace.name.clone()))
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(format!("{agent_count} agents")),
+                        ),
                 )
                 .child(
                     Button::new(format!("open-workspace-{id}"))
-                        .label("Open")
+                        .icon(IconName::ExternalLink)
+                        .ghost()
+                        .tooltip("Open workspace")
                         .on_click(cx.listener(move |manager, _: &ClickEvent, _window, cx| {
-                            WorkspaceWindow::open(
-                                Arc::clone(&manager.store),
-                                manager.settings.clone(),
-                                id,
-                                cx,
-                            );
+                            manager.open(id, cx);
                         })),
                 )
                 .child(
-                    Button::new(format!("edit-workspace-{id}"))
-                        .label("Rename")
+                    Button::new(format!("rename-workspace-{id}"))
+                        .icon(IconName::FileText)
+                        .ghost()
+                        .tooltip("Rename workspace")
                         .on_click(cx.listener(move |manager, _: &ClickEvent, window, cx| {
-                            manager.edit(id, window, cx);
+                            manager.open_workspace_dialog(Some(id), window, cx);
                         })),
                 )
+                .child(
+                    Button::new(format!("delete-workspace-{id}"))
+                        .icon(IconName::Delete)
+                        .danger()
+                        .tooltip("Delete workspace")
+                        .on_click(cx.listener(move |manager, _: &ClickEvent, _window, cx| {
+                            manager.request_delete(id, cx);
+                        })),
+                )
+                .child(
+                    div()
+                        .id(format!("workspace-drag-{id}"))
+                        .w(px(28.))
+                        .h(px(28.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .cursor_move()
+                        .child(Icon::new(IconName::Menu))
+                        .on_drag(WorkspaceDrag(id), |_drag, _position, _window, cx| {
+                            cx.new(|_| WorkspaceDragPreview)
+                        }),
+                )
         });
-        let form_label = if self.editing_id.is_some() {
-            "Save"
-        } else {
-            "Create"
-        };
+
         v_flex()
             .size_full()
             .gap_4()
             .p_4()
             .bg(cx.theme().background)
             .child(
-                v_flex()
-                    .gap_1()
+                h_flex()
+                    .items_center()
                     .child(div().text_2xl().child("Workspaces"))
+                    .child(div().flex_1())
                     .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("Create a workspace, then open it in its own window."),
-                    ),
-            )
-            .child(v_flex().gap_2().children(rows))
-            .child(
-                v_flex()
-                    .gap_2()
-                    .p_3()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("New workspace"),
-                    )
-                    .child(Input::new(&self.name_input).h_full())
-                    .child(
-                        Button::new("save-workspace")
-                            .label(form_label)
+                        Button::new("new-workspace")
+                            .icon(IconName::Plus)
+                            .primary()
+                            .tooltip("New workspace")
                             .on_click(cx.listener(|manager, _: &ClickEvent, window, cx| {
-                                manager.save(window, cx);
+                                manager.open_workspace_dialog(None, window, cx);
                             })),
                     ),
             )
+            .child(v_flex().gap_2().children(rows))
             .children(self.error.as_ref().map(|error| div().child(error.clone())))
+            .children(self.show_workspace_dialog.then(|| {
+                div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(cx.theme().overlay)
+                    .child(
+                        v_flex()
+                            .w(px(360.))
+                            .gap_3()
+                            .p_4()
+                            .rounded(cx.theme().radius_lg)
+                            .bg(cx.theme().background)
+                            .border_1()
+                            .border_color(cx.theme().border)
+                            .child(
+                                div()
+                                    .text_lg()
+                                    .child(if self.workspace_dialog_id.is_some() {
+                                        "Rename Workspace"
+                                    } else {
+                                        "New Workspace"
+                                    }),
+                            )
+                            .child(Input::new(&self.name_input).h_full())
+                            .child(
+                                h_flex()
+                                    .justify_end()
+                                    .gap_2()
+                                    .child(
+                                        Button::new("cancel-workspace-dialog")
+                                            .label("Cancel")
+                                            .on_click(cx.listener(
+                                                |manager, _: &ClickEvent, window, cx| {
+                                                    manager.cancel_workspace_dialog(window, cx);
+                                                },
+                                            )),
+                                    )
+                                    .child(
+                                        Button::new("confirm-workspace-dialog")
+                                            .label("Save")
+                                            .primary()
+                                            .on_click(cx.listener(
+                                                |manager, _: &ClickEvent, window, cx| {
+                                                    manager.confirm_workspace_dialog(window, cx);
+                                                },
+                                            )),
+                                    ),
+                            ),
+                    )
+            }))
+            .children(self.delete_workspace_id.map(|_| {
+                div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(cx.theme().overlay)
+                    .child(
+                        v_flex()
+                            .w(px(360.))
+                            .gap_3()
+                            .p_4()
+                            .rounded(cx.theme().radius_lg)
+                            .bg(cx.theme().background)
+                            .border_1()
+                            .border_color(cx.theme().border)
+                            .child(div().text_lg().child("Delete Workspace?"))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!(
+                                        "Delete \"{}\" and its agents?",
+                                        delete_name.as_deref().unwrap_or("this workspace")
+                                    )),
+                            )
+                            .child(
+                                h_flex()
+                                    .justify_end()
+                                    .gap_2()
+                                    .child(
+                                        Button::new("cancel-delete-workspace")
+                                            .label("Cancel")
+                                            .on_click(cx.listener(
+                                                |manager, _: &ClickEvent, _window, cx| {
+                                                    manager.cancel_delete(cx);
+                                                },
+                                            )),
+                                    )
+                                    .child(
+                                        Button::new("confirm-delete-workspace")
+                                            .label("Delete")
+                                            .danger()
+                                            .on_click(cx.listener(
+                                                |manager, _: &ClickEvent, _window, cx| {
+                                                    manager.confirm_delete(cx);
+                                                },
+                                            )),
+                                    ),
+                            ),
+                    )
+            }))
     }
 }
 
@@ -1648,10 +2166,57 @@ fn start_mcp_server(
     stop
 }
 
-actions!(skwad_app, [Quit]);
+actions!(skwad_app, [Quit, HideApp, HideOthers, ShowAllWindows]);
 
 fn quit(_: &Quit, cx: &mut App) {
     cx.quit();
+}
+
+fn hide_app(_: &HideApp, cx: &mut App) {
+    cx.hide();
+}
+
+fn hide_others(_: &HideOthers, cx: &mut App) {
+    cx.hide_other_apps();
+}
+
+fn show_all_windows(_: &ShowAllWindows, cx: &mut App) {
+    cx.activate(true);
+}
+
+fn set_app_menus(cx: &mut App) {
+    cx.set_menus([
+        Menu::new("Skwad").items([
+            MenuItem::os_submenu("Services", SystemMenuType::Services),
+            MenuItem::separator(),
+            MenuItem::action("Hide Skwad", HideApp),
+            MenuItem::action("Hide Others", HideOthers),
+            MenuItem::action("Show All", ShowAllWindows),
+            MenuItem::separator(),
+            MenuItem::action("Quit Skwad", Quit),
+        ]),
+        Menu::new("File").items([
+            MenuItem::action("New Workspace", gpui_kit::NoAction).disabled(true),
+            MenuItem::separator(),
+            MenuItem::action("Close Window", gpui_kit::NoAction).disabled(true),
+        ]),
+        Menu::new("Edit").items([
+            MenuItem::action("Undo", gpui_kit::NoAction).disabled(true),
+            MenuItem::action("Redo", gpui_kit::NoAction).disabled(true),
+            MenuItem::separator(),
+            MenuItem::action("Cut", gpui_kit::NoAction).disabled(true),
+            MenuItem::action("Copy", gpui_kit::NoAction).disabled(true),
+            MenuItem::action("Paste", gpui_kit::NoAction).disabled(true),
+        ]),
+        Menu::new("View")
+            .items([MenuItem::action("Enter Full Screen", gpui_kit::NoAction).disabled(true)]),
+        Menu::new("Window").items([
+            MenuItem::action("Minimize", gpui_kit::NoAction).disabled(true),
+            MenuItem::action("Zoom", gpui_kit::NoAction).disabled(true),
+        ]),
+        Menu::new("Help")
+            .items([MenuItem::action("Skwad Help", gpui_kit::NoAction).disabled(true)]),
+    ]);
 }
 
 fn main() {
@@ -1674,32 +2239,34 @@ fn main() {
         Arc::clone(&awaiting_input),
     );
 
-    gpui_kit::application().run(move |cx| {
-        gpui_kit::init(cx);
-        Theme::change(cx.window_appearance(), None, cx);
+    gpui_kit::application()
+        .with_assets(gpui_kit::assets::Assets)
+        .run(move |cx| {
+            gpui_kit::init(cx);
+            Theme::change(cx.window_appearance(), None, cx);
 
-        cx.on_action(quit);
-        cx.set_menus([Menu::new("Skwad").items([
-            MenuItem::submenu(Menu::new("Window")),
-            MenuItem::separator(),
-            MenuItem::action("Quit", Quit),
-        ])]);
+            cx.on_action(quit);
+            set_app_menus(cx);
 
-        let options = manager_window_options(cx);
-        cx.open_window(options, |window, cx| {
-            let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Workspace name"));
-            let view = cx.new(|_| WorkspaceManager {
-                store: Arc::clone(&store),
-                settings: settings.clone(),
-                name_input,
-                editing_id: None,
-                error: None,
-                _mcp_stop: Some(mcp_stop),
-            });
-            cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
-        })
-        .expect("failed to open workspace manager");
-    });
+            let options = manager_window_options(cx);
+            cx.open_window(options, |window, cx| {
+                let name_input =
+                    cx.new(|cx| InputState::new(window, cx).placeholder("Workspace name"));
+                let view = cx.new(|_| WorkspaceManager {
+                    store: Arc::clone(&store),
+                    settings: settings.clone(),
+                    name_input,
+                    editing_id: None,
+                    workspace_dialog_id: None,
+                    show_workspace_dialog: false,
+                    delete_workspace_id: None,
+                    error: None,
+                    _mcp_stop: Some(mcp_stop),
+                });
+                cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
+            })
+            .expect("failed to open workspace manager");
+        });
 }
 
 #[cfg(test)]
