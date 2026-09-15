@@ -25,6 +25,10 @@ pub const MARKDOWN_FONT_SIZE_DEFAULT: i32 = 14;
 
 pub const SOURCE_FOLDER_CANDIDATES: [&str; 3] = ["~/src", "~/source", "~/sources"];
 
+pub const AI_PROVIDER_DEFAULT: &str = "openai";
+
+pub const AUTOPILOT_ACTION_DEFAULT: &str = "mark";
+
 /// Shipped system personas: (fixed id, name, instructions). Fixed ids let the
 /// same persona be matched across installs and updates.
 pub const DEFAULT_PERSONAS: [(&str, &str, &str); 6] = [
