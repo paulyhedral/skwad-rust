@@ -3,7 +3,9 @@
 ### Requirement: Dashboard launcher
 
 The workspace window SHALL show an icon-only "Dashboard" button (image +
-tooltip) next to its "New agent" button.
+tooltip) next to its "New agent" button. Clicking it toggles the
+workspace window's own content between its terminal view and the
+dashboard view - it does not open a separate window.
 
 #### Scenario: Launcher present but inert (this session)
 
@@ -11,11 +13,31 @@ tooltip) next to its "New agent" button.
 - **THEN** a "Dashboard" icon button is visible next to "New agent"
 - **AND** clicking it does nothing yet (wiring lands in a later task)
 
-#### Scenario: Launcher opens the dashboard (future task)
+#### Scenario: Launcher toggles the in-place view (future task)
 
 - **WHEN** a workspace window is open and the "Dashboard" button is clicked
-- **THEN** a dashboard window scoped to that workspace opens (or focuses,
-  if already open)
+- **THEN** that window's content switches from the terminal view to the
+  dashboard view, scoped to that workspace's agents
+- **AND** clicking a card, or clicking the button again, switches back to
+  the terminal view
+
+### Requirement: Command Center window
+
+A separate, global dashboard window ("Command Center") SHALL show every
+attached workspace's agents, reusing the same agent card grid as the
+workspace-scoped dashboard.
+
+#### Scenario: Command Center shows all workspaces
+
+- **WHEN** the Command Center window is open
+- **THEN** every attached workspace appears as its own section in the
+  grid, not just one workspace
+
+#### Scenario: Card in Command Center opens the workspace window
+
+- **WHEN** an agent's card is clicked in the Command Center
+- **THEN** that agent's workspace window opens (or focuses, if already
+  open) showing its terminal view with that agent selected
 
 ### Requirement: Agent card grid
 

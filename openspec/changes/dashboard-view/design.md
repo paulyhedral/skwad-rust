@@ -2,17 +2,21 @@
 
 The Swift reference uses `DashboardView` both as an overlay inside the main
 window (global, all attached workspaces) and inside `DetachedWorkspaceView`
-(scoped to one workspace, `workspaceId` non-nil). The Rust port's structural
-equivalent of a detached workspace is `WorkspaceWindow`; there is no Rust
-equivalent of the main window's overlay/tab switching yet (`Shell` renders
-the agent list directly, not a dashboard-vs-terminal toggle).
+(scoped to one workspace, `workspaceId` non-nil) - the workspace-scoped case
+toggles in place against the terminal content (`agentManager.showDashboard`),
+not a separate window. The Rust port's structural equivalent of a detached
+workspace is `WorkspaceWindow`.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- One dashboard implementation usable both globally (from `Shell`) and
-  scoped to a single workspace (from `WorkspaceWindow`), like the Swift
-  `workspaceId: UUID?` parameter.
+- Workspace-scoped dashboard is an in-place view inside `WorkspaceWindow`,
+  toggled against the terminal view the same way the Swift reference does -
+  not a separate window.
+- Global ("Command Center") dashboard remains its own window.
+- One shared render function for the agent-card grid, used by both entry
+  points, like the Swift `workspaceId: UUID?` parameter selects scope
+  without duplicating the view.
 - Reuse `AgentEditor` for the add-agent flow; reuse `knot-git`'s existing
   numstat parsing for diff stats; reuse `Workspace.color_hex` for the
   workspace color bar; reuse `state_color`/`state_label` for status.
@@ -24,31 +28,35 @@ the agent list directly, not a dashboard-vs-terminal toggle).
 
 ## Decisions
 
-- **Open as its own window (`DashboardWindow`), not an in-place view swap
-  inside `Shell`/`WorkspaceWindow`.** The Rust port's `Shell` and
-  `WorkspaceWindow` don't currently have a concept of swapping their body
-  between "terminal" and "dashboard" modes (no state field, no toggle) -
-  every other secondary view in this port (Settings, persona editor, agent
-  editor, workspace manager) is its own `cx.open_window`. A window keeps
-  this change additive (no `Shell`/`WorkspaceWindow` render-mode branching)
-  at the cost of not matching the Swift reference's in-place overlay exactly.
-  Revisit if a future change adds general view-switching to those two.
+- **Workspace-scoped dashboard is an in-place view swap inside
+  `WorkspaceWindow`, not a window.** `WorkspaceWindow` gains a view-mode
+  field (e.g. `WorkspaceViewMode::{Terminal, Dashboard}`); the "Dashboard"
+  button (already landed, currently inert) toggles it and `Render` branches
+  on it, matching the Swift reference's in-place swap exactly instead of
+  the port's usual "every secondary surface is its own window" pattern -
+  this one is a genuine peer view of the terminal content, not a dialog.
+- **Global ("Command Center") dashboard stays its own window.** Unlike the
+  workspace-scoped case, there is no existing peer view inside `Shell` to
+  swap against (the main window's body is the agent list, not a
+  toggleable single-workspace terminal), so a window remains the closest
+  fit without inventing broader view-switching infrastructure for `Shell`.
 - **Git diff stats computed on open + manual refresh, not polled.** No
   polling/refresh-interval precedent exists elsewhere in this codebase for
   filesystem-derived data (contrast with the activity/hook-driven state,
-  which is push-based). Start with compute-on-open; add polling only if a
-  session reports this is unpleasant to use.
+  which is push-based). Start with compute-on-open (and on toggling into
+  the view, for the workspace-scoped case); add polling only if a session
+  reports this is unpleasant to use.
 - **Reuse `AgentEditor` unmodified for "Add Agent".** The Swift reference's
   `AddAgentCardView` opens the same `AgentSheet` used elsewhere; no new
   dialog needed.
 
 ## Risks / Trade-offs
 
-- [Risk] A separate window (vs. Swift's in-place overlay) means the
-  dashboard and the workspace's terminal can't be visible at once in the
-  same window → Mitigation: matches this port's existing pattern for every
-  other secondary view; acceptable given no in-place view-switching
-  infrastructure exists yet to build on.
+- [Risk] `WorkspaceWindow` gaining a view-mode field is a bigger change to
+  that struct than this port's usual additive-window pattern →
+  Mitigation: it's the correct shape here since the Swift reference treats
+  dashboard/terminal as peer views of the same window, not a dialog; keep
+  the mode field and its branch narrowly scoped to this toggle.
 - [Risk] Git diff stats require shelling out to `git diff --numstat` per
   visible agent folder on open, which is synchronous work today in
   `knot-git` → Mitigation: `AgentEditor`'s folder validation already does
@@ -58,4 +66,5 @@ the agent list directly, not a dashboard-vs-terminal toggle).
 
 ## Migration Plan
 
-Additive only - new window, no existing data or view is changed.
+Additive only - new view mode and a new window, no existing data or
+default-visible view is changed.
