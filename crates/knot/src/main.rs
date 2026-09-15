@@ -63,6 +63,9 @@ fn apply_visual_identity(cx: &mut App) {
     theme.colors.primary_foreground = gpui_kit::white();
     theme.colors.ring = accent;
     theme.colors.selection = accent.opacity(0.25);
+
+    // Colors/fonts only reach actual rendering via the mirrored Base layer.
+    Theme::sync_base(cx);
 }
 
 /// Captured bytes streamed out of a live terminal session. Rendered lazily.
