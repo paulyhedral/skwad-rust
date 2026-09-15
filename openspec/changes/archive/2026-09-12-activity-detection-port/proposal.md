@@ -10,7 +10,7 @@ dashboard sorting depend on needs the Rust equivalent of Swift's
 
 ## What Changes
 
-- Add a new crate `crates/skwad-activity` implementing the activity-detection
+- Add a new crate `crates/knot-activity` implementing the activity-detection
   state machine described in `openspec/specs/activity-detection/spec.md`:
   - Exact status states and status-change-time recording for dashboard
     sorting.
@@ -48,10 +48,10 @@ this change implements. `skip_specs: true`.
 
 ## Impact
 
-- New crate `crates/skwad-activity`, depending on `skwad-agents` (`Agent`,
-  `AgentState`), `skwad-agent-launch` (registration prompt), `skwad-core`
+- New crate `crates/knot-activity`, depending on `knot-agents` (`Agent`,
+  `AgentState`), `knot-agent-launch` (registration prompt), `knot-core`
   (`Settings` for `mcp_server_enabled`), and `tokio` (timers).
-- No changes to existing crates; `skwad-mcp-tools`, `skwad-mcp`, `skwad` are
+- No changes to existing crates; `knot-mcp-tools`, `knot-mcp`, `knot` are
   untouched (wire-in is a later integration change).
 - Timing values match `Skwad/Utilities/TimingConstants.swift`: idle 3s,
   user-input idle 10s, registration delays 1.5s/5s/0.5s.

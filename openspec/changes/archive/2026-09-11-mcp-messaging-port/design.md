@@ -10,11 +10,11 @@ the `[MCPMessage]` array: `add`, `getUnread`, `markAsRead`, `hasUnread`,
 `notifyAgentOfMessage` -> `agentDataProvider.injectText` for the delivery
 nudge).
 
-`skwad_agents::AgentStore` (from `agent-lifecycle-port`) exposes `agent(id)`
+`knot_agents::AgentStore` (from `agent-lifecycle-port`) exposes `agent(id)`
 and `workspaces()` for read access, but has no public mutator for
 `is_registered` or `state` - `create()` always yields an unregistered,
 `Idle` agent, and nothing else can flip either field. Adding one would be
-scope creep onto a crate this change doesn't own; instead `skwad-messaging`
+scope creep onto a crate this change doesn't own; instead `knot-messaging`
 takes pre-resolved `&Agent` values (all of `Agent`'s fields are already
 `pub`), pushing workspace-membership resolution to the caller. See
 "Agent resolution: `&[Agent]` slices, not `&AgentStore`" below.
@@ -27,8 +27,8 @@ library code, constants in one module, functions <= 5-6 args, `cargo
 
 **Goals:**
 
-- One crate, `skwad-messaging`, implementing every requirement in the spec
-  against `skwad_agents::Agent` values the caller resolves and supplies -
+- One crate, `knot-messaging`, implementing every requirement in the spec
+  against `knot_agents::Agent` values the caller resolves and supplies -
   identity, registration, and idle state all read straight off `Agent`'s
   public fields.
 - Keep the crate synchronous and dependency-light: the spec's operations are
@@ -53,13 +53,13 @@ library code, constants in one module, functions <= 5-6 args, `cargo
 - Concurrency primitives beyond what a single caller-owned `MessageStore`
   needs - no actor, no channel. If a future caller needs shared mutable
   access across threads, it wraps `MessageStore` in its own `Arc<Mutex<...>>`
-  exactly like `skwad-mcp` does for `AgentStore` today.
+  exactly like `knot-mcp` does for `AgentStore` today.
 
 ## Decisions
 
 ### Crate layout
 
-`skwad-messaging` as a sibling of `skwad-mcp`, depending on `skwad-agents`
+`knot-messaging` as a sibling of `knot-mcp`, depending on `knot-agents`
 (for `Agent`, `AgentState`) plus `thiserror`, `serde`, `uuid` (all already
 pinned in `[workspace.dependencies]`). Modules: `consts` (retention cap
 `100`), `error` (`SendError`), `message` (`Message`), `store`
@@ -101,7 +101,7 @@ an iterated fan-out.
 
 `send`/`broadcast` take `sender: &Agent` plus `workspace_members: &[Agent]`
 (every agent, including `sender`, in the sender's workspace) rather than
-`&skwad_agents::AgentStore`. `AgentStore` has no public mutator for
+`&knot_agents::AgentStore`. `AgentStore` has no public mutator for
 `is_registered`/`state` - only `create()` sets them, always to
 unregistered/`Idle` - so a test (or any caller) cannot get an `AgentStore`
 into a registered or non-`Idle` state at all. `Agent`'s fields are all
@@ -109,7 +109,7 @@ already `pub`, so both production callers (who resolve `sender` and collect
 `workspace_members` from their own `AgentStore` via `.agent(id)` and
 `.workspaces()`) and tests (which build `Agent { .. }` literals directly)
 work from the same, already-public surface. This also keeps
-`skwad-messaging` from reaching into `AgentStore`'s workspace-lookup
+`knot-messaging` from reaching into `AgentStore`'s workspace-lookup
 internals (`workspace_of` is private there) - the caller already has to
 walk `.workspaces()` to find the sender's workspace for its own purposes.
 
@@ -128,7 +128,7 @@ the guard itself lives with whatever owns the terminal; this crate's
 contract stops at "tell the notifier a message landed for an idle agent."
 Alternative considered: an `mpsc` channel the caller drains - rejected as
 more machinery than a synchronous callback needs, and it would force
-`skwad-messaging` to pick a channel type (`tokio::sync::mpsc` vs
+`knot-messaging` to pick a channel type (`tokio::sync::mpsc` vs
 `std::sync::mpsc`) that's really the terminal-owning crate's runtime
 decision, not this crate's.
 
@@ -148,7 +148,7 @@ self)` keeps that shape - automatic cleanup-on-every-add would mean every
   assuming position or completeness, so a malformed slice degrades to
   "recipient not found" / a lower broadcast count, never a wrong delivery.
   The eventual caller (`mcp-tools`) builds the slice directly from its own
-  `AgentStore.workspaces()` lookup, the same data `skwad-mcp`'s status
+  `AgentStore.workspaces()` lookup, the same data `knot-mcp`'s status
   endpoint already reads.
 - [Risk] `DeliveryNotifier` being a no-op until a later change wires a real
   terminal implementation means the idle-nudge requirement is only testable
@@ -160,5 +160,5 @@ self)` keeps that shape - automatic cleanup-on-every-add would mean every
 
 ## Migration Plan
 
-New crate, additive workspace member - no migration. `skwad-agents`,
-`skwad-mcp`, and earlier crates are unaffected.
+New crate, additive workspace member - no migration. `knot-agents`,
+`knot-mcp`, and earlier crates are unaffected.

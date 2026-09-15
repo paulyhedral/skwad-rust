@@ -1,9 +1,9 @@
 ## 1. Crate scaffold
 
-- [x] 1.1 Create `crates/skwad-watch` (`Cargo.toml` with `notify`, `tokio`,
+- [x] 1.1 Create `crates/knot-watch` (`Cargo.toml` with `notify`, `tokio`,
       `thiserror` workspace deps; `src/lib.rs`, `src/error.rs`,
       `src/consts.rs`) and add it to the workspace `members` list; verify
-      `cargo build -p skwad-watch` succeeds.
+      `cargo build -p knot-watch` succeeds.
 - [x] 1.2 Add default debounce and settle-delay constants to `consts.rs`
       (git-status ~1s, generic ~0.3s, resume settle ~0.5s) per
       `Skwad/Utilities/TimingConstants.swift`; verify the module compiles
@@ -22,7 +22,7 @@
       invoke the callback.
 - [x] 2.3 Implement debounce coalescing: relevant events restart the
       deadline, callback fires once after the debounce window elapses;
-      verify with a real-filesystem test (`skwad-discovery`'s existing
+      verify with a real-filesystem test (`knot-discovery`'s existing
       tests establish that `tokio::time::pause()` doesn't hold for real
       `notify` events - a real burst plus polling the callback count until
       it settles) that twenty rapid writes produce exactly one callback
@@ -42,8 +42,8 @@
 
 ## 4. Verification
 
-- [x] 4.1 Run `cargo +nightly fmt`, `cargo clippy -p skwad-watch --all-targets
-      -- -D warnings`, `cargo test -p skwad-watch`; all pass.
-- [x] 4.2 Update `crates/skwad-watch/src/lib.rs` module doc to link back to
+- [x] 4.1 Run `cargo +nightly fmt`, `cargo clippy -p knot-watch --all-targets
+      -- -D warnings`, `cargo test -p knot-watch`; all pass.
+- [x] 4.2 Update `crates/knot-watch/src/lib.rs` module doc to link back to
       `openspec/specs/file-watching/spec.md` per this repo's contract-doc
       convention; verify the doc comment is present and the crate builds.

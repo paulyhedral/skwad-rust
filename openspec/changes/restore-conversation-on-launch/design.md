@@ -3,7 +3,7 @@
 See proposal.md - Why. The load path today (wherever `restore-layout-on-launch`
 is consumed to reconstruct agents from `SavedAgent` records) resets every
 runtime field to its default, including session id and resume-session id, and
-launches each agent's terminal fresh. `skwad-history`'s provider registry
+launches each agent's terminal fresh. `knot-history`'s provider registry
 (`conversation-history` spec) already resolves the most recent session for a
 `(folder, agent type)` pair from disk. `agent-launch-command` already honors
 resume-session id when present. This change adds two things to the load/save
@@ -83,7 +83,7 @@ resume-session id before terminal launch.
   prune or reject it later] → Mitigation: same fallback as today's manual
   resume: the CLI's own rejection surfaces as a launch error, not a crash;
   no new failure mode.
-- [Persisting session id means Skwad's settings store now retains a link to
+- [Persisting session id means Knot's settings store now retains a link to
   CLI conversation content location, where it previously retained none] →
   Mitigation: opt-in, off by default; only the session id string is stored,
   not transcript content; scoped to when the user has explicitly asked for

@@ -12,8 +12,8 @@ singleton of `@AppStorage` scalars plus `Data`-blob collections decoded with
 shims. `Persona` / `SavedAgent` / `BenchAgent` / `Workspace` are `Codable`
 structs. Defaults personas are a static array keyed by fixed UUIDs.
 
-This lands as a `settings` module in `skwad-core`, not a new crate: it is the
-shared config surface the foundation change already earmarked `skwad-core` for
+This lands as a `settings` module in `knot-core`, not a new crate: it is the
+shared config surface the foundation change already earmarked `knot-core` for
 ("shared types, error model, constants"), it has no async / GUI / MCP
 dependency, and every later crate needs to read it.
 
@@ -43,13 +43,13 @@ dependency, and every later crate needs to read it.
 
 ## Decisions
 
-### `settings` module in `skwad-core`, not a new crate
+### `settings` module in `knot-core`, not a new crate
 
-`skwad-git` and `skwad-discovery` are one-crate-per-capability because each
+`knot-git` and `knot-discovery` are one-crate-per-capability because each
 pulls distinct heavy deps (`git`, `notify`+`tokio`). Settings pulls only
 `serde` + `serde_json` + `directories` + `uuid` - the exact deps the foundation
-plan assigned to `skwad-core` for config. A new crate would split the shared
-type home for no isolation gain. Rejected: `skwad-settings` crate.
+plan assigned to `knot-core` for config. A new crate would split the shared
+type home for no isolation gain. Rejected: `knot-settings` crate.
 
 ### One `Settings` struct, `#[serde(default)]` at the container level
 
@@ -141,12 +141,12 @@ keeps deleted personas so they are not re-installed.
 `ProjectDirs::from(ORG_QUALIFIER, ORG_NAME, APP_NAME).config_dir()` +
 `SETTINGS_FILE` (`"settings.json"`). `Settings::store_path()` is public so tests
 can point at a `tempdir` (an internal `with_path` constructor, or a
-`SKWAD_CONFIG_DIR` env override honored only in `cfg(test)` / debug). The
+`KNOT_CONFIG_DIR` env override honored only in `cfg(test)` / debug). The
 directory is created on first `persist()`.
 
 ### Error model
 
-Extend `skwad_core::Error` with `Serde(#[from] serde_json::Error)` (I/O already
+Extend `knot_core::Error` with `Serde(#[from] serde_json::Error)` (I/O already
 present as `Io`). `load()` maps a missing file to `Ok(Settings::default())`,
 maps a present-but-unparseable file to `Ok(Settings::default())` as well (spec:
 app still starts) while logging, and only returns `Err` for an I/O error that is
@@ -175,7 +175,7 @@ not "not found". `persist()` returns `Err` on a real write failure.
 
 ## Migration Plan
 
-Purely additive: a new module in `skwad-core` and four new workspace
+Purely additive: a new module in `knot-core` and four new workspace
 dependencies. Nothing consumes `Settings` yet. Rollback = remove the module,
 its re-exports, and the `serde` / `serde_json` / `directories` / `uuid`
 workspace entries if unused elsewhere.

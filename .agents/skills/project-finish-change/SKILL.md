@@ -14,7 +14,7 @@ Resolve `owner/repo` from `git remote -v` - referred to below as `<owner>/<repo>
 
 Ask which change to finish, unless clear from context. Find its worktree: `git worktree list`,
 or the fixed path convention
-`/Users/paulyhedral/Projects/Code/skwad-rust-worktrees/<branch-slug>`. All remaining work
+`/Users/paulyhedral/Projects/Code/knot-rust-worktrees/<branch-slug>`. All remaining work
 happens inside that worktree, not the main working tree.
 
 ### 2. Verify the work before declaring anything done
@@ -94,7 +94,7 @@ git pull
 ### 11. Remove the feature worktree
 
 ```
-git worktree remove /Users/paulyhedral/Projects/Code/skwad-rust-worktrees/<branch-slug>
+git worktree remove /Users/paulyhedral/Projects/Code/knot-rust-worktrees/<branch-slug>
 git branch -D <branch-name>
 ```
 

@@ -2,11 +2,11 @@
 
 Today, agent load persists only durable fields (settings-persistence spec:
 "Loading SHALL reconstruct agents with all runtime fields at defaults") — so
-quitting and relaunching Skwad, or a layout restore after an OS restart,
+quitting and relaunching Knot, or a layout restore after an OS restart,
 gives back the right named panes in the right folders but each one starts a
 brand-new CLI conversation, even though the prior transcript still exists on
 disk. The plumbing to avoid this already exists (resume-session id flows into
-`agent-launch-command`'s resume arguments; `skwad-history` already resolves
+`agent-launch-command`'s resume arguments; `knot-history` already resolves
 the most recent session per `(folder, agent type)`) — it's just not wired
 together at load time. (GitHub #60)
 
@@ -30,7 +30,7 @@ no exact id was recorded.
      to it directly — an exact restore of the session it was last attached
      to, before its terminal launches.
   2. Otherwise, fall back to looking up the most recent `SessionSummary` for
-     the agent's `(folder, agent_type)` via the `skwad-history` provider
+     the agent's `(folder, agent_type)` via the `knot-history` provider
      registry, and use that session's id if found.
   Either way, session id itself (not resume-session id) is left unset by this
   step; it is set by the normal resume flow once the terminal actually
@@ -63,7 +63,7 @@ no exact id was recorded.
 
 ## Impact
 
-- `skwad-core` / settings model: new scalar setting field, default off,
+- `knot-core` / settings model: new scalar setting field, default off,
   decode-tolerant (missing field defaults to off, matching existing
   tolerant-decode conventions). `SavedAgent` gains an optional `session_id`
   field, decode-tolerant (absent defaults to `None`).
@@ -73,9 +73,9 @@ no exact id was recorded.
   stale id from before it was disabled.
 - Agent load path (wherever `restore-layout-on-launch` is currently
   consumed): prefers the persisted exact session id, falls back to a
-  `skwad-history` provider-registry lookup per restored agent, and sets
+  `knot-history` provider-registry lookup per restored agent, and sets
   resume-session id before the terminal is spawned.
-- `skwad-history`: no behavior change; consumed as a read-only fallback
+- `knot-history`: no behavior change; consumed as a read-only fallback
   dependency.
 - `agent-launch-command`: no behavior change; already supports resume-session
   id when present.

@@ -3,7 +3,7 @@
 See proposal.md - Why. The `repo-discovery` spec has two halves: a pure
 filesystem scan and a debounced rescan driven by changes to the configured
 source folder. The scan needs no runtime. The rescan needs a directory watch,
-an async timer, and cancellation - none of which fit `skwad-git`, whose lib doc
+an async timer, and cancellation - none of which fit `knot-git`, whose lib doc
 promises "no async runtime". So this lands in a new crate.
 
 The Swift reference is `RepoDiscoveryService.scanRepos` (pure scan) plus its
@@ -34,13 +34,13 @@ keeps the debounce, and carries only the slice of the relevance filter the
 
 ## Decisions
 
-### New crate `skwad-discovery`, not a module in `skwad-git`
+### New crate `knot-discovery`, not a module in `knot-git`
 
-`skwad-git` is runtime-agnostic by contract. Discovery needs `tokio` and
+`knot-git` is runtime-agnostic by contract. Discovery needs `tokio` and
 `notify`. A new crate keeps that boundary clean and matches the
-one-crate-per-capability layout (`skwad-git` already carries two closely related
+one-crate-per-capability layout (`knot-git` already carries two closely related
 git specs; discovery is unrelated - it never runs `git`). Rejected: putting
-`scan` in `skwad-core` and the coordinator elsewhere - splits one small
+`scan` in `knot-core` and the coordinator elsewhere - splits one small
 capability across two crates for no gain.
 
 ### `scan(base: &Path) -> Vec<RepoInfo>` - pure, infallible
@@ -111,7 +111,7 @@ deliberate simplification, noted for `file-watching` to revisit.
 
 ### Constants
 
-`skwad-discovery/src/consts.rs`: `DEBOUNCE: Duration` (from
+`knot-discovery/src/consts.rs`: `DEBOUNCE: Duration` (from
 `TimingConstants.repoDiscoveryDebounce` = 1s), and the parse literals
 `GIT_DIR = ".git"`, `HEAD = "HEAD"`, `HEAD_REF_PREFIX = "ref: refs/heads/"`,
 `GITDIR_PREFIX = "gitdir: "`, `WORKTREES_MARKER = "/.git/worktrees/"`.
@@ -144,5 +144,5 @@ channel closing) end the task quietly - the last sent result stays valid.
 ## Migration Plan
 
 Purely additive: a new crate and two new workspace dependencies. Nothing
-consumes `skwad-discovery` yet. Rollback = remove the crate from the workspace
+consumes `knot-discovery` yet. Rollback = remove the crate from the workspace
 members and drop the `notify` / `tokio` workspace entries if unused elsewhere.

@@ -1,6 +1,6 @@
 ## Context
 
-See proposal.md - Why. `skwad-git` already has `Repository` (a working
+See proposal.md - Why. `knot-git` already has `Repository` (a working
 directory + `Runner`), a typed `GitError`, and one consts module. The
 `worktree-management` spec defines three behaviors in terms of a `.git` entry
 check and one `git worktree add -b` invocation. This design fits them into the
@@ -10,7 +10,7 @@ existing crate with no new dependencies.
 
 **Goals:**
 
-- Keep `skwad-git` runtime-agnostic: detection is `std::fs`, creation is one
+- Keep `knot-git` runtime-agnostic: detection is `std::fs`, creation is one
   `Runner::run` call.
 - `suggest_worktree_path` is a pure function, testable without a repo.
 - Detection recognizes a linked worktree, where `.git` is a file, not a dir.
@@ -52,7 +52,7 @@ path-safety (out of scope, and would diverge from the contract).
 ### consts
 
 Add `WORKTREE_ADD: &[&str] = &["worktree", "add", "-b"]` to
-`skwad-git/src/consts.rs`; `create_worktree` appends `branch` and
+`knot-git/src/consts.rs`; `create_worktree` appends `branch` and
 `destination`. Matches the existing argv-array convention.
 
 ## Risks / Trade-offs
@@ -69,5 +69,5 @@ Add `WORKTREE_ADD: &[&str] = &["worktree", "add", "-b"]` to
 
 ## Migration Plan
 
-Purely additive within `skwad-git`. Rollback = delete `worktree.rs` /
+Purely additive within `knot-git`. Rollback = delete `worktree.rs` /
 `tests/worktree.rs` and revert the `consts.rs` / `lib.rs` hunks.

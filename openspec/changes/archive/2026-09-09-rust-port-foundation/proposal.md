@@ -1,6 +1,6 @@
 ## Why
 
-`skwad-rust` has baseline specs but no Rust code — the repo is still the Swift
+`knot-rust` has baseline specs but no Rust code — the repo is still the Swift
 app plus `openspec/specs/`. The port needs a foundation: a Cargo workspace, the
 committed toolkit choices wired to a running shell, and one real module ported
 end to end to prove the structure. `git-operations` is the lowest-dependency
@@ -12,16 +12,16 @@ is the first slice.
 - Add a Cargo workspace at the repo root alongside the existing Swift tree
   (Swift app stays as the reference implementation, untouched).
 - Crates:
-  - `skwad-git` — the `git-operations` capability (this change implements it).
-  - `skwad-core` — shared types, error model, constants, localization lookup
+  - `knot-git` — the `git-operations` capability (this change implements it).
+  - `knot-core` — shared types, error model, constants, localization lookup
     (skeleton only this change).
-  - `skwad` — the gpui binary; opens an empty window and exits cleanly
+  - `knot` — the gpui binary; opens an empty window and exits cleanly
     (skeleton only this change).
 - Commit the stack choices from the port context as actual dependencies:
   gpui (GUI), tokio (async runtime), axum (HTTP, not wired yet), serde +
   `directories` (config). libghostty FFI and the MCP server are out of scope
   here.
-- Implement `skwad-git` fully against `openspec/specs/git-operations/spec.md`:
+- Implement `knot-git` fully against `openspec/specs/git-operations/spec.md`:
   command runner with timeout, porcelain v2 status parsing, unified-diff
   parsing, numstat combined stats, staging/commit operations, branch and
   ahead/behind queries. Unit tests + `insta` snapshots for the parsers.
@@ -47,12 +47,12 @@ None. This change scaffolds the workspace and implements the existing
 ### Modified Capabilities
 
 None. `openspec/specs/git-operations/spec.md` is the unchanged contract for
-`skwad-git`; this change adds the implementation, not new behavior.
+`knot-git`; this change adds the implementation, not new behavior.
 
 ## Impact
 
-- New: `Cargo.toml` (workspace), `crates/skwad-git/`, `crates/skwad-core/`,
-  `crates/skwad/`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/` if needed.
+- New: `Cargo.toml` (workspace), `crates/knot-git/`, `crates/knot-core/`,
+  `crates/knot/`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/` if needed.
 - Modified: `Makefile`, `.github/workflows/`, `.gitignore` (add `target/`).
 - Dependencies added: gpui-kit (crates.io; vends `gpui`/`gpui-component`),
   tokio, axum, serde, serde_json, thiserror, directories, insta (dev).

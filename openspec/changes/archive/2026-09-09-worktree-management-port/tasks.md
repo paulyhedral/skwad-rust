@@ -1,7 +1,7 @@
 ## 1. Module and consts
 
-- [x] 1.1 Add `WORKTREE_ADD: &[&str] = &["worktree", "add", "-b"]` to `crates/skwad-git/src/consts.rs`; verify `cargo build -p skwad-git`.
-- [x] 1.2 Create `crates/skwad-git/src/worktree.rs` and declare `pub mod worktree;` in `lib.rs`; verify `cargo build -p skwad-git`.
+- [x] 1.1 Add `WORKTREE_ADD: &[&str] = &["worktree", "add", "-b"]` to `crates/knot-git/src/consts.rs`; verify `cargo build -p knot-git`.
+- [x] 1.2 Create `crates/knot-git/src/worktree.rs` and declare `pub mod worktree;` in `lib.rs`; verify `cargo build -p knot-git`.
 
 ## 2. Detection and path suggestion (spec: Working-tree detection, Suggested destination path)
 
@@ -15,8 +15,8 @@
 
 ## 4. Exports and verification
 
-- [x] 4.1 Re-export `is_working_tree` and `suggest_worktree_path` from `lib.rs` and mention worktree ops in the crate doc comment; verify `cargo doc -p skwad-git` builds with no warnings. Done. README updated too.
-- [x] 4.2 Run `make rust-fmt rust-lint rust-test` — all pass, new tests included; `openspec validate worktree-management-port --strict` -> valid. Done: exit 0; 33 tests (2 skwad-core + 31 skwad-git).
+- [x] 4.1 Re-export `is_working_tree` and `suggest_worktree_path` from `lib.rs` and mention worktree ops in the crate doc comment; verify `cargo doc -p knot-git` builds with no warnings. Done. README updated too.
+- [x] 4.2 Run `make rust-fmt rust-lint rust-test` — all pass, new tests included; `openspec validate worktree-management-port --strict` -> valid. Done: exit 0; 33 tests (2 knot-core + 31 knot-git).
 - [x] 4.3 Cross-check every `worktree-management` spec scenario against a test:
 
   | Requirement | Scenario | Test |

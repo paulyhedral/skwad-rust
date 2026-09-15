@@ -1,17 +1,17 @@
 ## 1. Settings
 
 - [x] 1.1 Add `restore_conversation_on_launch: bool` (default `false`) to
-      `skwad_core::Settings` (`crates/skwad-core/src/settings/mod.rs`),
+      `knot_core::Settings` (`crates/knot-core/src/settings/mod.rs`),
       decode-tolerant like other post-hoc fields, and verify
-      `crates/skwad-core/tests/settings.rs` covers default-off and
+      `crates/knot-core/tests/settings.rs` covers default-off and
       legacy-blob-without-field-defaults-off.
 
 ## 2. Persist the exact session id
 
 - [x] 2.1 Add `session_id: Option<String>` to `SavedAgent`
-      (`crates/skwad-core/src/settings/mod.rs` or wherever `SavedAgent` is
+      (`crates/knot-core/src/settings/mod.rs` or wherever `SavedAgent` is
       defined), decode-tolerant (missing field defaults to `None`). Verify
-      with a `skwad-core` test that a legacy blob without the field decodes
+      with a `knot-core` test that a legacy blob without the field decodes
       with `session_id: None`.
 - [x] 2.2 Update the agent-to-`SavedAgent` persist path so that, when
       `restore_conversation_on_launch` is enabled, the agent's current
@@ -21,13 +21,13 @@
 
 ## 3. Agent store: resume-session id resolution at load
 
-- [x] 3.1 Add a method on `skwad_agents::AgentStore` (or a free function
+- [x] 3.1 Add a method on `knot_agents::AgentStore` (or a free function
       taking the store plus a `(folder, agent_type) -> Option<SessionSummary>`
       resolver) that, for each agent currently missing a resume-session id,
       sets it from the agent's own persisted `session_id` if present (set on
       the reconstructed `Agent` from `SavedAgent` during `from_saved`),
       otherwise from the resolver's result if any. Verify with unit tests in
-      `crates/skwad-agents` covering: persisted id present (used directly,
+      `crates/knot-agents` covering: persisted id present (used directly,
       resolver not consulted or its result discarded), persisted id absent
       with resolver hit, and persisted id absent with resolver miss (left
       `None`).
@@ -36,13 +36,13 @@
       `resume_session_id: None` (existing fresh-launch path unchanged) via a
       unit test.
 
-## 4. Wiring in skwad
+## 4. Wiring in knot
 
-- [x] 4.1 In `build_agent_store` (`crates/skwad/src/main.rs`), when
+- [x] 4.1 In `build_agent_store` (`crates/knot/src/main.rs`), when
       `settings.restore_layout_on_launch` and
       `settings.restore_conversation_on_launch` are both true, after
       `AgentStore::from_saved` resolve each agent's resume-session id via the
-      method from 3.1, using `skwad_history::provider(&agent.agent_type)` +
+      method from 3.1, using `knot_history::provider(&agent.agent_type)` +
       `HistoryProvider::sessions(&agent.folder)` as the fallback resolver.
       Verify by an integration test asserting: (a) an agent with a persisted
       `session_id` gets that exact id as its `resume_session_id`; (b) an

@@ -1,14 +1,14 @@
 ## 1. Crate scaffold
 
-- [x] 1.1 Create `crates/skwad-mcp-tools/` with `Cargo.toml` (workspace
-      edition; `skwad-mcp`, `skwad-agents`, `skwad-messaging`,
-      `skwad-discovery`, `skwad-git` path deps; `thiserror`, `serde`,
+- [x] 1.1 Create `crates/knot-mcp-tools/` with `Cargo.toml` (workspace
+      edition; `knot-mcp`, `knot-agents`, `knot-messaging`,
+      `knot-discovery`, `knot-git` path deps; `thiserror`, `serde`,
       `serde_json`, `uuid`, `async-trait` via workspace) and empty
       `src/lib.rs`; add the crate to root `Cargo.toml` workspace members;
-      verify `cargo build -p skwad-mcp-tools` succeeds.
+      verify `cargo build -p knot-mcp-tools` succeeds.
 - [x] 1.2 Add `src/consts.rs` (the thirteen tool name string constants) and
       `src/error.rs` if a local error type is needed beyond
-      `ToolCallResult`; verify `cargo build -p skwad-mcp-tools`.
+      `ToolCallResult`; verify `cargo build -p knot-mcp-tools`.
 - [x] 1.3 Add `src/args.rs` with `require_str`, `optional_str`,
       `optional_bool` helpers over `&serde_json::Value`, each returning
       `Result<T, ToolCallResult>` with the "Missing required parameter: x"
@@ -20,9 +20,9 @@
 - [x] 2.1 Add `markdown_file: Option<PathBuf>`, `markdown_maximized: bool`,
       `markdown_history: Vec<PathBuf>`, `mermaid_source: Option<String>`,
       `mermaid_title: Option<String>` to `Agent` in
-      `crates/skwad-agents/src/agent.rs`, defaulted empty/None in
-      `from_saved`; verify `cargo build -p skwad-agents` and existing
-      `skwad-agents` tests still pass unchanged.
+      `crates/knot-agents/src/agent.rs`, defaulted empty/None in
+      `from_saved`; verify `cargo build -p knot-agents` and existing
+      `knot-agents` tests still pass unchanged.
 - [x] 2.2 Add `AgentStore::set_markdown_panel(id, file, maximized)` (updates
       the three markdown fields, pushes `file` to the front of
       `markdown_history`, dedup so an already-shown file moves to the front
@@ -55,7 +55,7 @@
 ## 4. Messaging tools
 
 - [x] 4.1 Implement `src/messaging.rs` `send_message`, `check_messages`,
-      `broadcast_message` as thin adapters over `skwad_messaging::{send,
+      `broadcast_message` as thin adapters over `knot_messaging::{send,
       check, broadcast}`, mapping `SendError`'s `Display` to
       `ToolCallResult::error`; verify unit tests for a successful send, a
       rejected send (shell recipient) surfacing the exact rejection text
@@ -65,16 +65,16 @@
 ## 5. Repo and worktree tools
 
 - [x] 5.1 Implement `src/repos.rs` `list_repos` and `list_worktrees` over
-      `skwad_discovery::scan`; verify unit tests for the response shape
+      `knot_discovery::scan`; verify unit tests for the response shape
       (name + worktrees list; repoPath + worktree name/path list) and an
       unknown `repoPath` returning an empty worktree list.
 - [x] 5.2 Implement `create_worktree` over
-      `skwad_git::{Repository, worktree::is_working_tree}`, validating a
+      `knot_git::{Repository, worktree::is_working_tree}`, validating a
       non-empty `branchName` and a valid git repo before calling
       `create_worktree`; verify unit tests for the empty-`branchName`
       error, the not-a-git-repo error, and a successful create returning
       the new path (using a `tempfile` git fixture, matching
-      `skwad-git`'s existing worktree tests).
+      `knot-git`'s existing worktree tests).
 
 ## 6. Panel tools
 
@@ -89,19 +89,19 @@
 
 - [x] 7.1 Implement `McpToolCatalog` in `src/lib.rs`: holds the
       `Arc<Mutex<AgentStore>>` (or equivalent handle already used by
-      `crates/skwad`) plus whatever `skwad-discovery`/`skwad-git` inputs
+      `crates/knot`) plus whatever `knot-discovery`/`knot-git` inputs
       the repo/worktree handlers need, implements `ToolCatalog::list`
       (all thirteen `ToolDefinition`s, descriptions/schemas matching the
       spec) and `ToolCatalog::call` (dispatch by name, `unknown tool: x`
       for anything else); verify a unit test asserting `list()` returns
       exactly the thirteen names with `type: "object"` schemas.
-- [x] 7.2 `crates/skwad` had no `McpServer`/`EmptyCatalog` construction at
+- [x] 7.2 `crates/knot` had no `McpServer`/`EmptyCatalog` construction at
       all yet (bare `gpui-kit` shell, no tokio, no backend deps) - added
       `main.rs::start_mcp_server`, a dedicated OS thread running a tokio
       runtime that loads `Settings`, starts `Discovery` on the configured
       source folder, builds `McpToolCatalog`, and starts `McpServer` on
       `mcp_server_port` when `mcp_server_enabled`. Verified with
-      `cargo build -p skwad` and a manual `cargo run -p skwad` +
+      `cargo build -p knot` and a manual `cargo run -p knot` +
       `curl 127.0.0.1:8766/mcp` `tools/list` round-trip returning all
       thirteen tools. `AgentStore` starts empty - restoring
       `saved_agents`/`saved_workspaces` into a running store has no loader
@@ -112,7 +112,7 @@
 
 - [x] 8.1 Run `make rust` (fmt + clippy + test + build, whole workspace)
       and fix anything it surfaces; verify it exits clean. (Passes outside
-      the sandbox; `skwad-mcp`'s HTTP tests need real socket binds and
-      `skwad-discovery`'s watch test needs real filesystem-event delivery,
+      the sandbox; `knot-mcp`'s HTTP tests need real socket binds and
+      `knot-discovery`'s watch test needs real filesystem-event delivery,
       both blocked inside the sandbox network/fs policy - pre-existing,
       unrelated to this change.)

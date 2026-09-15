@@ -1,6 +1,6 @@
 ## Purpose
 
-Defines Skwad's single configuration and durable-object store: the scalar
+Defines Knot's single configuration and durable-object store: the scalar
 settings, the serialized collections (saved agents, saved workspaces, personas,
 bench templates, recent repos), the durable agent field set, first-launch
 source-folder detection, the recent-repos MRU, and decode-tolerant migration.

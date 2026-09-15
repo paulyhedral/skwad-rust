@@ -1,10 +1,10 @@
 ## 1. Crate scaffold
 
-- [x] 1.1 Create `crates/skwad-activity` (`Cargo.toml` depending on `tokio`,
-      `skwad-agents`), add it to the root workspace `[workspace.members]`, and
-      verify `cargo build -p skwad-activity` succeeds. `[workspace.members]`
-      uses `crates/*`, so no membership edit was needed. `skwad-agent-launch`
-      and `skwad-core` are deliberately not depended on: hook capability and
+- [x] 1.1 Create `crates/knot-activity` (`Cargo.toml` depending on `tokio`,
+      `knot-agents`), add it to the root workspace `[workspace.members]`, and
+      verify `cargo build -p knot-activity` succeeds. `[workspace.members]`
+      uses `crates/*`, so no membership edit was needed. `knot-agent-launch`
+      and `knot-core` are deliberately not depended on: hook capability and
       registration-prompt wiring happen at the integration boundary
       (`TrackerConfig` fields + `Tracker::set_registration_prompt`).
 - [x] 1.2 Add `consts.rs` for the timing values (idle 3s, user-input idle 10s,
@@ -72,7 +72,7 @@
       injected-once-after-idle.
 - [x] 7.2 Registration injection respects the input-protection guard, and the
       registration prompt text is supplied via `Tracker::set_registration_prompt`
-      (the integration wires this to `skwad_agent_launch::registration_prompt`).
+      (the integration wires this to `knot_agent_launch::registration_prompt`).
       Verify a unit test that the guard blocks the prompt and it is not lost.
 
 ## 8. Idle triggers message check
@@ -83,6 +83,6 @@
 - [x] 8.2 Cross-check every scenario in
       `openspec/specs/activity-detection/spec.md` against a test name in the
       crate and verify none are missing, then run `cargo +nightly fmt`,
-      `cargo clippy -p skwad-activity --all-targets -- -D warnings`, and
-      `cargo test -p skwad-activity` with all three green. Nightly fmt is not
+      `cargo clippy -p knot-activity --all-targets -- -D warnings`, and
+      `cargo test -p knot-activity` with all three green. Nightly fmt is not
       installed here; stable `cargo fmt` ran with no diffs.

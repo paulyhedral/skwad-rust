@@ -1,6 +1,6 @@
 ## Purpose
 
-Defines the concrete MCP tool catalog Skwad exposes to agents: each tool's
+Defines the concrete MCP tool catalog Knot exposes to agents: each tool's
 name, required and optional inputs, success payload, and failure behavior.
 Routing rules for messaging tools are owned by `mcp-messaging`; this spec fixes
 the tool surface itself.
@@ -37,13 +37,13 @@ raise a transport-level error.
 
 `register-agent` SHALL require `agentId` and accept optional `sessionId`. On
 success it SHALL mark the agent registered, associate the session id when
-given, and return the unread-message count and the list of skwad members
+given, and return the unread-message count and the list of knot members
 visible to the caller.
 
 #### Scenario: Register returns roster
 
 - **WHEN** a known agent calls `register-agent` with its id
-- **THEN** it is marked registered and the result includes the current skwad
+- **THEN** it is marked registered and the result includes the current knot
   members
 
 ### Requirement: list-agents

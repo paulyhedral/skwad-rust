@@ -3818,6 +3818,169 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
+name = "knot"
+version = "0.1.0"
+dependencies = [
+ "gpui-kit",
+ "knot-activity",
+ "knot-agents",
+ "knot-core",
+ "knot-discovery",
+ "knot-history",
+ "knot-mcp",
+ "knot-mcp-tools",
+ "knot-messaging",
+ "knot-terminal",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "knot-activity"
+version = "0.1.0"
+dependencies = [
+ "knot-agents",
+ "thiserror 2.0.20",
+ "tokio",
+]
+
+[[package]]
+name = "knot-agent-launch"
+version = "0.1.0"
+dependencies = [
+ "knot-core",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
+name = "knot-agents"
+version = "0.1.0"
+dependencies = [
+ "knot-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "uuid",
+]
+
+[[package]]
+name = "knot-core"
+version = "0.1.0"
+dependencies = [
+ "directories",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "uuid",
+]
+
+[[package]]
+name = "knot-discovery"
+version = "0.1.0"
+dependencies = [
+ "notify 8.2.0",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+]
+
+[[package]]
+name = "knot-git"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "tempfile",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "knot-history"
+version = "0.1.0"
+dependencies = [
+ "directories",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "time",
+]
+
+[[package]]
+name = "knot-mcp"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "knot-agents",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-stream",
+ "uuid",
+]
+
+[[package]]
+name = "knot-mcp-tools"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "knot-activity",
+ "knot-agents",
+ "knot-core",
+ "knot-discovery",
+ "knot-git",
+ "knot-mcp",
+ "knot-messaging",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "knot-messaging"
+version = "0.1.0"
+dependencies = [
+ "knot-agents",
+ "serde",
+ "thiserror 2.0.20",
+ "uuid",
+]
+
+[[package]]
+name = "knot-terminal"
+version = "0.1.0"
+dependencies = [
+ "knot-activity",
+ "knot-agent-launch",
+ "knot-agents",
+ "knot-core",
+ "portable-pty",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "knot-watch"
+version = "0.1.0"
+dependencies = [
+ "notify 8.2.0",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+]
+
+[[package]]
 name = "kqueue"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6655,169 +6818,6 @@ checksum = "819ab7d62b1d3e72d9d9dea5650bac30424f9111364bb94928dbf5ecad1baa68"
 dependencies = [
  "bytemuck",
  "read-fonts 0.41.0",
-]
-
-[[package]]
-name = "skwad"
-version = "0.1.0"
-dependencies = [
- "gpui-kit",
- "skwad-activity",
- "skwad-agents",
- "skwad-core",
- "skwad-discovery",
- "skwad-history",
- "skwad-mcp",
- "skwad-mcp-tools",
- "skwad-messaging",
- "skwad-terminal",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "skwad-activity"
-version = "0.1.0"
-dependencies = [
- "skwad-agents",
- "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "skwad-agent-launch"
-version = "0.1.0"
-dependencies = [
- "skwad-core",
- "tempfile",
- "uuid",
-]
-
-[[package]]
-name = "skwad-agents"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "skwad-core",
- "thiserror 2.0.20",
- "uuid",
-]
-
-[[package]]
-name = "skwad-core"
-version = "0.1.0"
-dependencies = [
- "directories",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.20",
- "uuid",
-]
-
-[[package]]
-name = "skwad-discovery"
-version = "0.1.0"
-dependencies = [
- "notify 8.2.0",
- "tempfile",
- "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "skwad-git"
-version = "0.1.0"
-dependencies = [
- "insta",
- "tempfile",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "skwad-history"
-version = "0.1.0"
-dependencies = [
- "directories",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.20",
- "time",
-]
-
-[[package]]
-name = "skwad-mcp"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "axum",
- "reqwest",
- "serde",
- "serde_json",
- "skwad-agents",
- "thiserror 2.0.20",
- "tokio",
- "tokio-stream",
- "uuid",
-]
-
-[[package]]
-name = "skwad-mcp-tools"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "serde",
- "serde_json",
- "skwad-activity",
- "skwad-agents",
- "skwad-core",
- "skwad-discovery",
- "skwad-git",
- "skwad-mcp",
- "skwad-messaging",
- "tempfile",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "skwad-messaging"
-version = "0.1.0"
-dependencies = [
- "serde",
- "skwad-agents",
- "thiserror 2.0.20",
- "uuid",
-]
-
-[[package]]
-name = "skwad-terminal"
-version = "0.1.0"
-dependencies = [
- "portable-pty",
- "skwad-activity",
- "skwad-agent-launch",
- "skwad-agents",
- "skwad-core",
- "tempfile",
- "thiserror 2.0.20",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "skwad-watch"
-version = "0.1.0"
-dependencies = [
- "notify 8.2.0",
- "tempfile",
- "thiserror 2.0.20",
- "tokio",
 ]
 
 [[package]]

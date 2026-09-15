@@ -1,6 +1,6 @@
 ## Purpose
 
-Defines how Skwad reads a coding agent's past sessions for a given project
+Defines how Knot reads a coding agent's past sessions for a given project
 folder: the uniform session-summary shape, the per-agent on-disk source and
 format, the recency cap and ordering, folder-scoped caching with explicit
 refresh and invalidate, and deleting a session then backfilling the list.

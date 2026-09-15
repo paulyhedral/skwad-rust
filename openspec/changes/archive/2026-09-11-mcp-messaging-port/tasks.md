@@ -1,14 +1,14 @@
 ## 1. Crate scaffold
 
-- [x] 1.1 Create `crates/skwad-messaging/` with `Cargo.toml` (workspace
-      edition; `skwad-agents` path dep; `thiserror`, `serde`, `uuid` via
-      workspace) and empty `src/lib.rs`; add `skwad-messaging` to the root
+- [x] 1.1 Create `crates/knot-messaging/` with `Cargo.toml` (workspace
+      edition; `knot-agents` path dep; `thiserror`, `serde`, `uuid` via
+      workspace) and empty `src/lib.rs`; add `knot-messaging` to the root
       `Cargo.toml` workspace members; verify `cargo build -p
-      skwad-messaging` succeeds and `cargo metadata` lists the crate.
+      knot-messaging` succeeds and `cargo metadata` lists the crate.
 - [x] 1.2 Add `src/consts.rs` (`READ_RETENTION_LIMIT: usize = 100`) and
       `src/error.rs` (`SendError`, a `thiserror` enum whose `Display`
       produces the spec's exact rejection strings, plus a crate `Result`
-      alias); verify `cargo build -p skwad-messaging`.
+      alias); verify `cargo build -p knot-messaging`.
 
 ## 2. Message model and store
 
@@ -61,7 +61,7 @@
       mutator for `is_registered`/`state`, so tests (and any caller) could
       not construct a registered or non-`Idle` agent through it; taking
       pre-resolved `&Agent`/`&[Agent]` values sidesteps that gap without
-      touching `skwad-agents`. Verified by unit tests: "Unregistered
+      touching `knot-agents`. Verified by unit tests: "Unregistered
       sender", "Cross-workspace send fails" (recipient absent from
       `workspace_members`), "Direct send to shell agent", "Owner messages
       its companion", "Third party messages a companion", "Companion can
@@ -90,7 +90,7 @@
       `DeliveryNotifier`, `RecordingNotifier`, `NoopNotifier`, `send`,
       `broadcast`, `check`) from `lib.rs` with module docs linking
       `openspec/specs/mcp-messaging/spec.md`; verify `cargo doc -p
-      skwad-messaging` builds with no warnings.
+      knot-messaging` builds with no warnings.
 - [x] 5.2 Run `make rust` (nightly fmt check + clippy `-D warnings` + test +
       build) for the whole workspace and confirm it passes.
 - [x] 5.3 Run `openspec validate mcp-messaging-port` and confirm the change

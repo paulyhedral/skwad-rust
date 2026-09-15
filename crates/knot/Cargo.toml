@@ -1,0 +1,22 @@
+[package]
+name = "knot"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+default-run = "knot"
+
+[dependencies]
+knot-core = { path = "../knot-core" }
+knot-agents = { path = "../knot-agents" }
+knot-activity = { path = "../knot-activity" }
+knot-discovery = { path = "../knot-discovery" }
+knot-messaging = { path = "../knot-messaging" }
+knot-mcp = { path = "../knot-mcp" }
+knot-mcp-tools = { path = "../knot-mcp-tools" }
+knot-terminal = { path = "../knot-terminal" }
+knot-history = { path = "../knot-history" }
+tokio.workspace = true
+uuid.workspace = true
+gpui-kit = "0.6"

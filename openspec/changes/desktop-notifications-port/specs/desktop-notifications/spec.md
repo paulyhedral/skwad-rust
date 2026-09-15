@@ -1,7 +1,7 @@
 ## Purpose
 
 Delivers macOS desktop notifications (via `UNUserNotificationCenter`) when an
-agent needs the user's attention while Skwad is backgrounded or hidden to the
+agent needs the user's attention while Knot is backgrounded or hidden to the
 menu bar, and routes a click on that notification back to the agent.
 
 ## ADDED Requirements
@@ -30,7 +30,7 @@ and carry the agent's id so a click can route back to it.
 
 - **WHEN** agent "auth-service" enters Awaiting input with hook message
   "Grant filesystem access?" and the setting is on
-- **THEN** a desktop notification titled "Skwad - auth-service" with body
+- **THEN** a desktop notification titled "Knot - auth-service" with body
   "Grant filesystem access?" is raised
 
 #### Scenario: Notification uses default body without a message

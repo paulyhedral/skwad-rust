@@ -1,17 +1,17 @@
 <p align="center">
-   <img src="images/skwad-icon.png" width="128" height="128" alt="Skwad App Icon" />
+   <img src="images/knot-icon.png" width="128" height="128" alt="Knot App Icon" />
 </p>
 
-# Skwad
+# Knot
 
-Skwad is a desktop app for running and coordinating multiple AI coding agents. Each agent gets its own terminal session, workspace, status, and MCP connection.
+Knot is a desktop app for running and coordinating multiple AI coding agents. Each agent gets its own terminal session, workspace, status, and MCP connection.
 
-This repository is moving Skwad from its original Swift/macOS implementation to a cross-platform Rust application built with [GPUI-Kit](https://github.com/longbridge/gpui-kit). The Swift app remains in the repository as the behavioral reference while the Rust port is developed crate by crate.
+This repository is moving Knot from its original Swift/macOS implementation to a cross-platform Rust application built with [GPUI-Kit](https://github.com/longbridge/gpui-kit). The Swift app remains in the repository as the behavioral reference while the Rust port is developed crate by crate.
 
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)
 ![GPUI-Kit](https://img.shields.io/badge/UI-GPUI--Kit-blue)
 ![License](https://img.shields.io/badge/License-AGPL--3.0-green)
-[![Downloads](https://img.shields.io/github/downloads/paulyhedral/skwad-rust/total.svg?color=orange)](https://tooomm.github.io/github-release-stats/?username=paulyhedral&repository=skwad-rust)
+[![Downloads](https://img.shields.io/github/downloads/pilgrimagesoftware/Knot/total.svg?color=orange)](https://tooomm.github.io/github-release-stats/?username=pilgrimagesoftware&repository=Knot)
 
 ## Current State
 
@@ -32,18 +32,18 @@ The port is in progress. The Rust UI and backend are usable for the implemented 
 
 ## Repository Layout
 
-- `crates/skwad/` - GPUI-Kit desktop application and shell UI.
-- `crates/skwad-core/` - Settings, persisted records, localization, and shared types.
-- `crates/skwad-agents/` - Agent state and workspace management.
-- `crates/skwad-terminal/` - PTY sessions and terminal activity integration.
-- `crates/skwad-activity/` - Activity detection and idle tracking.
-- `crates/skwad-mcp/` - Local MCP HTTP server and hook routes.
-- `crates/skwad-mcp-tools/` - MCP tool catalog.
-- `crates/skwad-messaging/` - Agent-to-agent message routing and unread state.
-- `crates/skwad-discovery/` - Repository and worktree discovery.
-- `crates/skwad-git/` - Runtime-agnostic Git operations and parsers.
-- `crates/skwad-history/` - Conversation history providers and cache.
-- `crates/skwad-watch/` - Debounced filesystem watching.
+- `crates/knot/` - GPUI-Kit desktop application and shell UI.
+- `crates/knot-core/` - Settings, persisted records, localization, and shared types.
+- `crates/knot-agents/` - Agent state and workspace management.
+- `crates/knot-terminal/` - PTY sessions and terminal activity integration.
+- `crates/knot-activity/` - Activity detection and idle tracking.
+- `crates/knot-mcp/` - Local MCP HTTP server and hook routes.
+- `crates/knot-mcp-tools/` - MCP tool catalog.
+- `crates/knot-messaging/` - Agent-to-agent message routing and unread state.
+- `crates/knot-discovery/` - Repository and worktree discovery.
+- `crates/knot-git/` - Runtime-agnostic Git operations and parsers.
+- `crates/knot-history/` - Conversation history providers and cache.
+- `crates/knot-watch/` - Debounced filesystem watching.
 - `Skwad/` and `SkwadTests/` - Original Swift/macOS implementation and behavioral reference.
 - `openspec/` - Contracts and implementation changes for the Rust port.
 
@@ -57,8 +57,8 @@ The port is in progress. The Rust UI and backend are usable for the implemented 
 ## Build And Test
 
 ```bash
-git clone https://github.com/paulyhedral/skwad-rust.git
-cd skwad-rust
+git clone https://github.com/pilgrimagesoftware/Knot.git
+cd knot-rust
 
 # Run formatting, linting, tests, and the workspace build.
 make rust
@@ -73,7 +73,7 @@ make rust-build
 To run the Rust desktop application directly:
 
 ```bash
-cargo run -p skwad
+cargo run -p knot
 ```
 
 The Swift reference app has separate Xcode and Makefile targets. Those targets are not required for Rust port development.

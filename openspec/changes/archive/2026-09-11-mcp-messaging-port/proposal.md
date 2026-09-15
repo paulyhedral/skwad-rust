@@ -9,7 +9,7 @@ that made `mcp-server` land before `mcp-tools`.
 
 ## What Changes
 
-- Add a new crate `crates/skwad-messaging` implementing
+- Add a new crate `crates/knot-messaging` implementing
   `openspec/specs/mcp-messaging/spec.md`:
   - `Message` (id, sender/recipient `Uuid`, content, timestamp, read flag
     defaulting to false), held in an in-process store only - no
@@ -33,7 +33,7 @@ that made `mcp-server` land before `mcp-tools`.
   - A `DeliveryNotifier` trait (`notify(agent_id: Uuid, message_id: Uuid)`)
     that `send`/`broadcast` call once per stored message when the recipient
     is currently `AgentState::Idle`, replacing the Swift reference's direct
-    `injectText` call - `skwad-messaging` has no terminal/PTY dependency, so
+    `injectText` call - `knot-messaging` has no terminal/PTY dependency, so
     the actual "type into the terminal" side effect stays with whichever
     crate owns the terminal, wired in later. This also fixes the spec's
     documented divergence: both send and broadcast idle-gate identically
@@ -43,8 +43,8 @@ that made `mcp-server` land before `mcp-tools`.
     routing (both directions), idle vs busy delivery nudge (direct and
     broadcast), check clears unread, broadcast fan-out count, retention
     cleanup.
-- Add `crates/skwad-messaging` to the workspace `Cargo.toml` members. No new
-  `[workspace.dependencies]` - reuses `skwad-agents`, `thiserror`, `serde`,
+- Add `crates/knot-messaging` to the workspace `Cargo.toml` members. No new
+  `[workspace.dependencies]` - reuses `knot-agents`, `thiserror`, `serde`,
   `uuid` already pinned there.
 
 Non-goals:
@@ -71,13 +71,13 @@ change adds the implementation. `skip_specs: true`.
 
 ## Impact
 
-- New crate: `crates/skwad-messaging/` (`Cargo.toml`, `src/lib.rs`,
+- New crate: `crates/knot-messaging/` (`Cargo.toml`, `src/lib.rs`,
   `consts.rs`, `error.rs`, `message.rs`, `store.rs`, `routing.rs`,
   `notify.rs`).
-- Modified: root `Cargo.toml` (workspace members gains `skwad-messaging`),
+- Modified: root `Cargo.toml` (workspace members gains `knot-messaging`),
   `Cargo.lock`.
-- `skwad-core`, `skwad-git`, `skwad-discovery`, `skwad-history`,
-  `skwad-mcp`, `skwad`, and the Swift build are unaffected. `skwad-messaging`
-  depends on `skwad-agents` (for `Agent`/`AgentState`, to resolve senders and
+- `knot-core`, `knot-git`, `knot-discovery`, `knot-history`,
+  `knot-mcp`, `knot`, and the Swift build are unaffected. `knot-messaging`
+  depends on `knot-agents` (for `Agent`/`AgentState`, to resolve senders and
   recipients and check idle state) plus `thiserror`, `serde`, `uuid` (all via
   workspace).

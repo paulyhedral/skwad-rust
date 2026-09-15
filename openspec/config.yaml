@@ -3,14 +3,14 @@ schema: spec-driven
 context: |
   ## Project
 
-  Skwad manages multiple AI coding agents, each running in an embedded terminal,
+  Knot manages multiple AI coding agents, each running in an embedded terminal,
   on macOS. Agent-to-agent messaging over an MCP HTTP server, git worktree
   integration, hook-driven activity status.
 
   ## This repo is a rewrite
 
-  `skwad-rust` reimplements Skwad in Rust. The reference implementation is the
-  Swift/SwiftUI app under `Skwad/` + `SkwadTests/` (~25k LOC, ~120 files).
+  `knot-rust` reimplements Knot in Rust. The reference implementation is the
+  Swift/SwiftUI app under `Knot/` + `KnotTests/` (~25k LOC, ~120 files).
   Specs in `openspec/specs/` describe INTENDED behavior of the Rust port,
   derived from current Swift behavior with known limitations fixed — not a
   literal transcription of the Swift code.

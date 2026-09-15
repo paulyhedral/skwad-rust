@@ -1,8 +1,8 @@
 ## Context
 
-`skwad-discovery::Discovery` already implements a debounced, relevance-
+`knot-discovery::Discovery` already implements a debounced, relevance-
 filtered directory watch (`notify` + `tokio`) for the source-folder scan; see
-`crates/skwad-discovery/src/discovery.rs`. It has no pause/resume - it
+`crates/knot-discovery/src/discovery.rs`. It has no pause/resume - it
 doesn't need it, since scanning is idempotent and doesn't write to the
 watched tree.
 
@@ -25,19 +25,19 @@ consumer of this exists yet (no git-status panel is ported).
 **Non-Goals:**
 - No git-status panel or artifact-file panel consumer in this change - both
   are unported GUI features. This change ships the primitive only.
-- No refactor of `skwad-discovery::Discovery` onto this primitive. Its watch
+- No refactor of `knot-discovery::Discovery` onto this primitive. Its watch
   has no pause/resume need and already has its own tests; converging it is
   a separate, low-value change with regression risk for no behavior gain.
 
 ## Decisions
 
-**New crate `skwad-watch` vs. adding to `skwad-discovery` or `skwad-git`.**
-`skwad-git` is explicitly runtime-agnostic (no tokio) per its module docs, so
-a `tokio`-driven watch can't live there. `skwad-discovery` is a plausible
+**New crate `knot-watch` vs. adding to `knot-discovery` or `knot-git`.**
+`knot-git` is explicitly runtime-agnostic (no tokio) per its module docs, so
+a `tokio`-driven watch can't live there. `knot-discovery` is a plausible
 home (it already depends on `notify` + `tokio`), but its name and module
 docs commit it to "map a source folder to repos" - folding in an unrelated
 generic watch primitive would blur that contract. A small standalone crate
-keeps `skwad-discovery`'s scope intact and gives future consumers (a
+keeps `knot-discovery`'s scope intact and gives future consumers (a
 git-status panel, an artifact-file panel) a dependency that doesn't pull in
 repo-scanning code they don't need.
 
@@ -63,7 +63,7 @@ that will consume it aren't proposed yet. Tests exercise the crate directly.
 
 [Debounce/settle timing is fragile under `tokio::time::pause()` in tests] →
 Use `tokio::time` test-util (already a dev-dependency pattern in
-`skwad-discovery`) and advance virtual time explicitly rather than sleeping.
+`knot-discovery`) and advance virtual time explicitly rather than sleeping.
 
 ## Migration Plan
 
