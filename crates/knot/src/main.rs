@@ -841,7 +841,10 @@ fn open_settings_window(
     }
     let options = settings_window_options(cx);
     match cx.open_window(options, move |window, cx| {
-        let view = cx.new(|_| SettingsWindow { settings });
+        let view = cx.new(|_| SettingsWindow {
+            settings,
+            selected_tab: SettingsTab::General,
+        });
         cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
     }) {
         Ok(window) => *handle.borrow_mut() = Some(window.into()),
@@ -849,8 +852,44 @@ fn open_settings_window(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SettingsTab {
+    General,
+    Coding,
+    Personas,
+    Autopilot,
+    Voice,
+    Mcp,
+    Terminal,
+}
+
+impl SettingsTab {
+    const ALL: [SettingsTab; 7] = [
+        SettingsTab::General,
+        SettingsTab::Coding,
+        SettingsTab::Personas,
+        SettingsTab::Autopilot,
+        SettingsTab::Voice,
+        SettingsTab::Mcp,
+        SettingsTab::Terminal,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            SettingsTab::General => "General",
+            SettingsTab::Coding => "Coding",
+            SettingsTab::Personas => "Personas",
+            SettingsTab::Autopilot => "Autopilot",
+            SettingsTab::Voice => "Voice",
+            SettingsTab::Mcp => "MCP",
+            SettingsTab::Terminal => "Terminal",
+        }
+    }
+}
+
 struct SettingsWindow {
     settings: knot_core::Settings,
+    selected_tab: SettingsTab,
 }
 
 impl SettingsWindow {
@@ -880,8 +919,33 @@ impl SettingsWindow {
     }
 }
 
-impl Render for SettingsWindow {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+impl SettingsWindow {
+    fn render_tab_strip(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let settings_window = cx.entity();
+        h_flex().gap_2().children(SettingsTab::ALL.map(|tab| {
+            Button::new(("settings-tab", tab as u32))
+                .label(tab.label())
+                .selected(self.selected_tab == tab)
+                .on_click({
+                    let settings_window = settings_window.clone();
+                    move |_, _, app| {
+                        settings_window.update(app, |view, cx| {
+                            view.selected_tab = tab;
+                            cx.notify();
+                        })
+                    }
+                })
+        }))
+    }
+
+    fn render_placeholder(name: &'static str, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .text_sm()
+            .text_color(cx.theme().muted_foreground)
+            .child(format!("{name} is not yet available."))
+    }
+
+    fn render_general(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let settings_window = cx.entity();
         let restore_layout_on_launch = self.settings.restore_layout_on_launch;
         let restore_conversation_on_launch = self.settings.restore_conversation_on_launch;
@@ -890,10 +954,7 @@ impl Render for SettingsWindow {
         let appearance_label = Self::appearance_label(&self.settings.appearance_mode);
 
         v_flex()
-            .size_full()
             .gap_4()
-            .p_5()
-            .bg(cx.theme().background)
             .child(div().text_xl().child("General"))
             .child(
                 v_flex()
@@ -1036,6 +1097,28 @@ impl Render for SettingsWindow {
                             ),
                     ),
             )
+    }
+}
+
+impl Render for SettingsWindow {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let body = match self.selected_tab {
+            SettingsTab::General => self.render_general(cx).into_any_element(),
+            SettingsTab::Coding => Self::render_placeholder("Coding", cx).into_any_element(),
+            SettingsTab::Personas => Self::render_placeholder("Personas", cx).into_any_element(),
+            SettingsTab::Autopilot => Self::render_placeholder("Autopilot", cx).into_any_element(),
+            SettingsTab::Voice => Self::render_placeholder("Voice", cx).into_any_element(),
+            SettingsTab::Mcp => Self::render_placeholder("MCP", cx).into_any_element(),
+            SettingsTab::Terminal => Self::render_placeholder("Terminal", cx).into_any_element(),
+        };
+
+        v_flex()
+            .size_full()
+            .gap_4()
+            .p_5()
+            .bg(cx.theme().background)
+            .child(self.render_tab_strip(cx))
+            .child(body)
     }
 }
 
@@ -3173,5 +3256,33 @@ mod tests {
         settings.restore_conversation_on_launch = true;
         settings.restore_layout_on_launch = false;
         assert!(settings.restore_conversation_on_launch);
+    }
+
+    #[test]
+    fn settings_tab_default_is_general() {
+        assert_eq!(SettingsTab::ALL[0], SettingsTab::General);
+    }
+
+    #[test]
+    fn settings_tab_labels_are_distinct() {
+        let labels: BTreeSet<&str> = SettingsTab::ALL.iter().map(|tab| tab.label()).collect();
+        assert_eq!(labels.len(), SettingsTab::ALL.len());
+    }
+
+    #[test]
+    fn settings_tab_covers_every_swift_pane() {
+        let labels: Vec<&str> = SettingsTab::ALL.iter().map(|tab| tab.label()).collect();
+        assert_eq!(
+            labels,
+            vec![
+                "General",
+                "Coding",
+                "Personas",
+                "Autopilot",
+                "Voice",
+                "MCP",
+                "Terminal"
+            ]
+        );
     }
 }
