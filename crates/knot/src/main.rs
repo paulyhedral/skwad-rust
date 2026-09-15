@@ -11,7 +11,7 @@ use gpui_kit::base::Selectable;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::group_box::{GroupBox, GroupBoxVariants};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::tab::{Tab, TabBar};
@@ -36,63 +36,19 @@ type AwaitingInputQueue = Arc<Mutex<Vec<(Uuid, Option<String>)>>>;
 
 /// Drives the real macOS font panel (`NSFontPanel`) for the terminal font
 /// picker, since the user wants the system chooser rather than an in-app
-/// dropdown. AppKit reports the choice via a `changeFont:` action message,
-/// which we stash in a static and poll from GPUI (see [`poll_selection`]).
+/// dropdown. `NSFontManager.selectedFont` updates live as the user clicks
+/// around the panel, so we just poll it from GPUI (see [`poll_selection`])
+/// instead of relying on the `changeFont:` target/action message - AppKit's
+/// own responder chain (e.g. text views taking first responder) can steal
+/// that target, but the property read is unaffected either way.
 #[cfg(target_os = "macos")]
 mod native_font_panel {
-    use objc2::rc::Retained;
-    use objc2::runtime::AnyObject;
-    use objc2::{AllocAnyThread, MainThreadMarker, define_class, msg_send, sel};
-    use objc2_app_kit::{NSFont, NSFontManager};
-    use objc2_foundation::{NSObject, NSObjectProtocol, NSString};
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::{Mutex, OnceLock};
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSFontManager;
+    use objc2_foundation::NSString;
+    use std::sync::Mutex;
 
-    static GENERATION: AtomicU64 = AtomicU64::new(0);
-    static SELECTED_FAMILY: Mutex<Option<String>> = Mutex::new(None);
-
-    struct MainThreadOnly<T>(T);
-    // SAFETY: only ever constructed and read from the main thread, guarded
-    // by `MainThreadMarker` at every call site below.
-    unsafe impl<T> Send for MainThreadOnly<T> {}
-    unsafe impl<T> Sync for MainThreadOnly<T> {}
-
-    define_class!(
-        #[unsafe(super(NSObject))]
-        #[name = "KnotFontPanelTarget"]
-        struct FontPanelTarget;
-
-        unsafe impl NSObjectProtocol for FontPanelTarget {}
-
-        impl FontPanelTarget {
-            #[unsafe(method(changeFont:))]
-            fn change_font(&self, sender: &AnyObject) {
-                let Some(mtm) = MainThreadMarker::new() else {
-                    return;
-                };
-                let manager = unsafe { std::mem::transmute::<&AnyObject, &NSFontManager>(sender) };
-                let Some(current) = NSFontManager::sharedFontManager(mtm).selectedFont() else {
-                    return;
-                };
-                let converted = manager.convertFont(&current);
-                if let Some(family) = converted.familyName() {
-                    *SELECTED_FAMILY.lock().unwrap() = Some(family.to_string());
-                    GENERATION.fetch_add(1, Ordering::SeqCst);
-                }
-            }
-        }
-    );
-
-    fn shared_target() -> &'static FontPanelTarget {
-        static TARGET: OnceLock<MainThreadOnly<Retained<FontPanelTarget>>> = OnceLock::new();
-        &TARGET
-            .get_or_init(|| {
-                let target: Retained<FontPanelTarget> =
-                    unsafe { msg_send![FontPanelTarget::alloc(), init] };
-                MainThreadOnly(target)
-            })
-            .0
-    }
+    static LAST_SEEN_FAMILY: Mutex<Option<String>> = Mutex::new(None);
 
     /// Opens the system font panel pre-selected to `current_family`. No-op
     /// off the main thread.
@@ -100,29 +56,32 @@ mod native_font_panel {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
         };
+        *LAST_SEEN_FAMILY.lock().unwrap() = Some(current_family.to_string());
         let manager = NSFontManager::sharedFontManager(mtm);
-        if let Some(font) = NSFont::fontWithName_size(&NSString::from_str(current_family), 13.0) {
+        if let Some(font) =
+            objc2_app_kit::NSFont::fontWithName_size(&NSString::from_str(current_family), 13.0)
+        {
             manager.setSelectedFont_isMultiple(&font, false);
-        }
-        let target = shared_target();
-        unsafe {
-            manager.setTarget(Some(target));
-            manager.setAction(sel!(changeFont:));
         }
         if let Some(panel) = manager.fontPanel(true) {
             panel.makeKeyAndOrderFront(None);
         }
     }
 
-    /// Returns the newly chosen family name if the panel reported a change
-    /// since `last_seen` was last updated, bumping `last_seen` either way.
-    pub fn poll_selection(last_seen: &mut u64) -> Option<String> {
-        let current = GENERATION.load(Ordering::SeqCst);
-        if current == *last_seen {
+    /// Returns the newly chosen family name if it differs from the last
+    /// value seen (by `open` or a prior poll). No-op off the main thread.
+    pub fn poll_selection() -> Option<String> {
+        let mtm = MainThreadMarker::new()?;
+        let manager = NSFontManager::sharedFontManager(mtm);
+        let selected = manager.selectedFont()?;
+        let converted = manager.convertFont(&selected);
+        let family = converted.familyName()?.to_string();
+        let mut last_seen = LAST_SEEN_FAMILY.lock().unwrap();
+        if last_seen.as_deref() == Some(family.as_str()) {
             return None;
         }
-        *last_seen = current;
-        SELECTED_FAMILY.lock().unwrap().clone()
+        *last_seen = Some(family.clone());
+        Some(family)
     }
 }
 
@@ -936,7 +895,7 @@ fn manager_window_options(cx: &App) -> WindowOptions {
     WindowOptions {
         window_bounds: Some(WindowBounds::centered(size(px(800.), px(600.)), cx)),
         window_min_size: Some(size(px(640.), px(420.))),
-        ..WindowOptions::default()
+        ..TitleBar::window_options()
     }
 }
 
@@ -944,7 +903,7 @@ fn workspace_window_options(cx: &App) -> WindowOptions {
     WindowOptions {
         window_bounds: Some(WindowBounds::centered(size(px(960.), px(640.)), cx)),
         window_min_size: Some(size(px(760.), px(520.))),
-        ..WindowOptions::default()
+        ..TitleBar::window_options()
     }
 }
 
@@ -1085,12 +1044,11 @@ fn open_settings_window(
         {
             let settings_window = view.clone();
             cx.spawn(async move |cx| {
-                let mut last_seen = 0u64;
                 loop {
                     cx.background_executor()
                         .timer(Duration::from_millis(300))
                         .await;
-                    if let Some(family) = native_font_panel::poll_selection(&mut last_seen) {
+                    if let Some(family) = native_font_panel::poll_selection() {
                         cx.update(|app| {
                             settings_window.update(app, |view, cx| {
                                 view.settings.terminal_font_name = family;
@@ -2245,6 +2203,7 @@ impl SettingsWindow {
                         "Command",
                         h_flex()
                             .flex_1()
+                            .min_w_0()
                             .gap_2()
                             .items_start()
                             .child(if install_command.is_empty() {
@@ -2304,8 +2263,12 @@ impl SettingsWindow {
     }
 }
 
-fn persona_editor_window_options(cx: &App) -> WindowOptions {
+fn persona_editor_window_options(title: &'static str, cx: &App) -> WindowOptions {
     WindowOptions {
+        titlebar: Some(gpui_kit::TitlebarOptions {
+            title: Some(title.into()),
+            ..Default::default()
+        }),
         window_bounds: Some(WindowBounds::centered(size(px(460.), px(380.)), cx)),
         window_min_size: Some(size(px(400.), px(320.))),
         ..WindowOptions::default()
@@ -2320,20 +2283,26 @@ fn open_persona_editor(
     cx: &mut App,
 ) {
     let editing_id = persona.as_ref().map(|p| p.id);
+    let title = if editing_id.is_some() {
+        "Edit Persona"
+    } else {
+        "New Persona"
+    };
     let name = persona.as_ref().map(|p| p.name.clone()).unwrap_or_default();
     let instructions = persona
         .as_ref()
         .map(|p| p.instructions.clone())
         .unwrap_or_default();
-    let options = persona_editor_window_options(cx);
+    let options = persona_editor_window_options(title, cx);
     let _ = cx.open_window(options, move |window, cx| {
         let name_input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("Persona name")
                 .default_value(name)
         });
+        name_input.update(cx, |state, cx| state.focus(window, cx));
         let instructions_input = cx.new(|cx| {
-            InputState::new(window, cx)
+            TextareaState::new(window, cx)
                 .placeholder("Instructions")
                 .default_value(instructions)
         });
@@ -2352,7 +2321,7 @@ struct PersonaEditor {
     parent: WeakEntity<SettingsWindow>,
     editing_id: Option<Uuid>,
     name_input: Entity<InputState>,
-    instructions_input: Entity<InputState>,
+    instructions_input: Entity<TextareaState>,
     error: Option<String>,
 }
 
@@ -2390,11 +2359,6 @@ impl Render for PersonaEditor {
             .gap_3()
             .p_5()
             .bg(cx.theme().background)
-            .child(div().text_xl().child(if self.editing_id.is_some() {
-                "Edit Persona"
-            } else {
-                "New Persona"
-            }))
             .child(
                 h_flex()
                     .gap_2()
@@ -2403,9 +2367,15 @@ impl Render for PersonaEditor {
             )
             .child(
                 h_flex()
+                    .flex_1()
                     .gap_2()
                     .child(div().w(px(100.)).text_right().child("Instructions"))
-                    .child(Input::new(&self.instructions_input).flex_1()),
+                    .child(
+                        Textarea::new(&self.instructions_input)
+                            .flex_1()
+                            .h_full()
+                            .font_family(cx.theme().mono_font_family.clone()),
+                    ),
             )
             .children(
                 self.error
@@ -2414,6 +2384,7 @@ impl Render for PersonaEditor {
             )
             .child(
                 h_flex()
+                    .flex_shrink_0()
                     .justify_end()
                     .gap_2()
                     .child(
@@ -2443,19 +2414,24 @@ impl Render for SettingsWindow {
             SettingsTab::Terminal => self.render_terminal(cx).into_any_element(),
         };
 
+        // Personas manages its own scroll region (only the list scrolls, the
+        // title/action row stays pinned) - scrolling the body too would let
+        // both containers move at once and make the group's title/border
+        // appear to drift.
+        let mut settings_body = div().id("settings-body").flex_1();
+        settings_body = if matches!(self.selected_tab, SettingsTab::Personas) {
+            settings_body.overflow_hidden()
+        } else {
+            settings_body.overflow_y_scroll()
+        };
+
         v_flex()
             .size_full()
             .gap_3()
             .p_4()
             .bg(cx.theme().background)
             .child(self.render_tab_strip(cx))
-            .child(
-                div()
-                    .id("settings-body")
-                    .flex_1()
-                    .overflow_y_scroll()
-                    .child(body),
-            )
+            .child(settings_body.child(body))
     }
 }
 
@@ -2845,7 +2821,10 @@ impl Render for WorkspaceWindow {
                 .iter()
                 .find(|workspace| workspace.id == self.workspace_id)
             else {
-                return v_flex().size_full().child("Workspace no longer exists.");
+                return v_flex()
+                    .size_full()
+                    .child(TitleBar::new())
+                    .child("Workspace no longer exists.");
             };
             let agents = workspace
                 .agent_ids
@@ -2900,78 +2879,83 @@ impl Render for WorkspaceWindow {
             })
             .unwrap_or_else(|| "Choose an agent from the sidebar".to_string());
 
-        h_flex()
+        v_flex()
             .size_full()
-            .relative()
-            .bg(cx.theme().background)
+            .child(TitleBar::new().child(workspace_name.clone()))
             .child(
-                v_flex()
-                    .w(px(250.))
-                    .h_full()
-                    .gap_2()
-                    .p_4()
-                    .bg(cx.theme().muted)
+                h_flex()
+                    .flex_1()
+                    .relative()
+                    .bg(cx.theme().background)
                     .child(
                         v_flex()
-                            .gap_1()
-                            .child(div().text_lg().child(workspace_name.clone()))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("Workspace"),
-                            ),
-                    )
-                    .children(agent_rows)
-                    .child(div().flex_1())
-                    .children(
-                        self.error
-                            .as_ref()
-                            .map(|error| div().text_sm().child(error.clone())),
-                    )
-                    .child(
-                        Button::new("workspace-new-agent")
-                            .icon(IconName::Plus)
-                            .tooltip("New agent")
-                            .on_click(cx.listener(|view, _: &ClickEvent, window, cx| {
-                                view.open_new_agent_dialog(window, cx);
-                            })),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .flex_1()
-                    .child(
-                        h_flex()
-                            .h(px(56.))
-                            .px_5()
-                            .items_center()
-                            .border_b_1()
-                            .border_color(cx.theme().border)
+                            .w(px(250.))
+                            .h_full()
+                            .gap_2()
+                            .p_4()
+                            .bg(cx.theme().muted)
                             .child(
                                 v_flex()
                                     .gap_1()
-                                    .child(div().text_lg().child(selected_title))
+                                    .child(div().text_lg().child(workspace_name.clone()))
                                     .child(
                                         div()
                                             .text_sm()
                                             .text_color(cx.theme().muted_foreground)
-                                            .child("Terminal"),
+                                            .child("Workspace"),
                                     ),
+                            )
+                            .children(agent_rows)
+                            .child(div().flex_1())
+                            .children(
+                                self.error
+                                    .as_ref()
+                                    .map(|error| div().text_sm().child(error.clone())),
+                            )
+                            .child(
+                                Button::new("workspace-new-agent")
+                                    .icon(IconName::Plus)
+                                    .tooltip("New agent")
+                                    .on_click(cx.listener(|view, _: &ClickEvent, window, cx| {
+                                        view.open_new_agent_dialog(window, cx);
+                                    })),
                             ),
                     )
                     .child(
-                        div()
-                            .size_full()
-                            .p_6()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .bg(cx.theme().muted)
+                        v_flex()
+                            .flex_1()
+                            .child(
+                                h_flex()
+                                    .h(px(56.))
+                                    .px_5()
+                                    .items_center()
+                                    .border_b_1()
+                                    .border_color(cx.theme().border)
+                                    .child(
+                                        v_flex()
+                                            .gap_1()
+                                            .child(div().text_lg().child(selected_title))
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .text_color(cx.theme().muted_foreground)
+                                                    .child("Terminal"),
+                                            ),
+                                    ),
+                            )
                             .child(
                                 div()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("Terminal display will appear here"),
+                                    .size_full()
+                                    .p_6()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .bg(cx.theme().muted)
+                                    .child(
+                                        div()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child("Terminal display will appear here"),
+                                    ),
                             ),
                     ),
             )
@@ -3083,6 +3067,7 @@ impl WorkspaceManager {
         self.error = None;
         cx.update_entity(&self.name_input, |input, input_cx| {
             input.set_value(name, window, input_cx);
+            input.focus(window, input_cx);
         });
         cx.notify();
     }
@@ -3246,132 +3231,145 @@ impl Render for WorkspaceManager {
 
         v_flex()
             .size_full()
-            .gap_4()
-            .p_4()
             .bg(cx.theme().background)
+            .child(TitleBar::new().child("Workspaces"))
             .child(
-                h_flex()
-                    .items_center()
-                    .child(div().text_2xl().child("Workspaces"))
-                    .child(div().flex_1())
+                v_flex()
+                    .flex_1()
+                    .gap_4()
+                    .p_4()
                     .child(
-                        Button::new("new-workspace")
-                            .icon(IconName::Plus)
-                            .primary()
-                            .tooltip("New workspace")
-                            .on_click(cx.listener(|manager, _: &ClickEvent, window, cx| {
-                                manager.open_workspace_dialog(None, window, cx);
-                            })),
-                    ),
-            )
-            .child(v_flex().gap_2().children(rows))
-            .children(self.error.as_ref().map(|error| div().child(error.clone())))
-            .children(self.show_workspace_dialog.then(|| {
-                div()
-                    .absolute()
-                    .inset_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .bg(cx.theme().overlay)
-                    .child(
-                        v_flex()
-                            .w(px(360.))
-                            .gap_3()
-                            .p_4()
-                            .rounded(cx.theme().radius_lg)
-                            .bg(cx.theme().background)
-                            .border_1()
-                            .border_color(cx.theme().border)
+                        h_flex()
+                            .items_center()
+                            .child(div().text_2xl().child("Workspaces"))
+                            .child(div().flex_1())
                             .child(
-                                div()
-                                    .text_lg()
-                                    .child(if self.workspace_dialog_id.is_some() {
-                                        "Rename Workspace"
-                                    } else {
-                                        "New Workspace"
-                                    }),
-                            )
-                            .child(Input::new(&self.name_input).h_full())
-                            .child(
-                                h_flex()
-                                    .justify_end()
-                                    .gap_2()
-                                    .child(
-                                        Button::new("cancel-workspace-dialog")
-                                            .label("Cancel")
-                                            .on_click(cx.listener(
-                                                |manager, _: &ClickEvent, window, cx| {
-                                                    manager.cancel_workspace_dialog(window, cx);
-                                                },
-                                            )),
-                                    )
-                                    .child(
-                                        Button::new("confirm-workspace-dialog")
-                                            .label("Save")
-                                            .primary()
-                                            .on_click(cx.listener(
-                                                |manager, _: &ClickEvent, window, cx| {
-                                                    manager.confirm_workspace_dialog(window, cx);
-                                                },
-                                            )),
-                                    ),
-                            ),
-                    )
-            }))
-            .children(self.delete_workspace_id.map(|_| {
-                div()
-                    .absolute()
-                    .inset_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .bg(cx.theme().overlay)
-                    .child(
-                        v_flex()
-                            .w(px(360.))
-                            .gap_3()
-                            .p_4()
-                            .rounded(cx.theme().radius_lg)
-                            .bg(cx.theme().background)
-                            .border_1()
-                            .border_color(cx.theme().border)
-                            .child(div().text_lg().child("Delete Workspace?"))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!(
-                                        "Delete \"{}\" and its agents?",
-                                        delete_name.as_deref().unwrap_or("this workspace")
+                                Button::new("new-workspace")
+                                    .icon(IconName::Plus)
+                                    .primary()
+                                    .tooltip("New workspace")
+                                    .on_click(cx.listener(
+                                        |manager, _: &ClickEvent, window, cx| {
+                                            manager.open_workspace_dialog(None, window, cx);
+                                        },
                                     )),
-                            )
+                            ),
+                    )
+                    .child(v_flex().gap_2().children(rows))
+                    .children(self.error.as_ref().map(|error| div().child(error.clone())))
+                    .children(self.show_workspace_dialog.then(|| {
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(cx.theme().overlay)
                             .child(
-                                h_flex()
-                                    .justify_end()
-                                    .gap_2()
+                                v_flex()
+                                    .w(px(360.))
+                                    .gap_3()
+                                    .p_4()
+                                    .rounded(cx.theme().radius_lg)
+                                    .bg(cx.theme().background)
+                                    .border_1()
+                                    .border_color(cx.theme().border)
+                                    .child(div().text_lg().child(
+                                        if self.workspace_dialog_id.is_some() {
+                                            "Rename Workspace"
+                                        } else {
+                                            "New Workspace"
+                                        },
+                                    ))
+                                    .child(Input::new(&self.name_input).h_full())
                                     .child(
-                                        Button::new("cancel-delete-workspace")
-                                            .label("Cancel")
-                                            .on_click(cx.listener(
-                                                |manager, _: &ClickEvent, _window, cx| {
-                                                    manager.cancel_delete(cx);
-                                                },
+                                        h_flex()
+                                            .justify_end()
+                                            .gap_2()
+                                            .child(
+                                                Button::new("cancel-workspace-dialog")
+                                                    .label("Cancel")
+                                                    .on_click(cx.listener(
+                                                        |manager, _: &ClickEvent, window, cx| {
+                                                            manager.cancel_workspace_dialog(
+                                                                window, cx,
+                                                            );
+                                                        },
+                                                    )),
+                                            )
+                                            .child(
+                                                Button::new("confirm-workspace-dialog")
+                                                    .label(if self.workspace_dialog_id.is_some() {
+                                                        "Save"
+                                                    } else {
+                                                        "Create"
+                                                    })
+                                                    .primary()
+                                                    .on_click(cx.listener(
+                                                        |manager, _: &ClickEvent, window, cx| {
+                                                            manager.confirm_workspace_dialog(
+                                                                window, cx,
+                                                            );
+                                                        },
+                                                    )),
+                                            ),
+                                    ),
+                            )
+                    }))
+                    .children(self.delete_workspace_id.map(|_| {
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(cx.theme().overlay)
+                            .child(
+                                v_flex()
+                                    .w(px(360.))
+                                    .gap_3()
+                                    .p_4()
+                                    .rounded(cx.theme().radius_lg)
+                                    .bg(cx.theme().background)
+                                    .border_1()
+                                    .border_color(cx.theme().border)
+                                    .child(div().text_lg().child("Delete Workspace?"))
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(format!(
+                                                "Delete \"{}\" and its agents?",
+                                                delete_name.as_deref().unwrap_or("this workspace")
                                             )),
                                     )
                                     .child(
-                                        Button::new("confirm-delete-workspace")
-                                            .label("Delete")
-                                            .danger()
-                                            .on_click(cx.listener(
-                                                |manager, _: &ClickEvent, _window, cx| {
-                                                    manager.confirm_delete(cx);
-                                                },
-                                            )),
+                                        h_flex()
+                                            .justify_end()
+                                            .gap_2()
+                                            .child(
+                                                Button::new("cancel-delete-workspace")
+                                                    .label("Cancel")
+                                                    .on_click(cx.listener(
+                                                        |manager, _: &ClickEvent, _window, cx| {
+                                                            manager.cancel_delete(cx);
+                                                        },
+                                                    )),
+                                            )
+                                            .child(
+                                                Button::new("confirm-delete-workspace")
+                                                    .label("Delete")
+                                                    .danger()
+                                                    .on_click(cx.listener(
+                                                        |manager, _: &ClickEvent, _window, cx| {
+                                                            manager.confirm_delete(cx);
+                                                        },
+                                                    )),
+                                            ),
                                     ),
-                            ),
-                    )
-            }))
+                            )
+                    })),
+            )
     }
 }
 
