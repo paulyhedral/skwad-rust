@@ -27,6 +27,7 @@ use knot_activity::EventSink;
 use knot_mcp::ToolCatalog;
 use knot_messaging::{DeliveryEvent, QueuedNotifier};
 use knot_terminal::{PtyTransport, SessionConfig, SessionPlan, TerminalSession};
+use unicode_segmentation::UnicodeSegmentation;
 use uuid::Uuid;
 
 const MAX_VISIBLE_LINES: usize = 200;
@@ -2556,22 +2557,40 @@ impl WorkspaceWindow {
         let workspace_id = self.workspace_id;
         let options = agent_window_options(cx);
         let _ = cx.open_window(options, move |window, cx| {
-            let name_input =
-                cx.new(|cx| InputState::new(window, cx).placeholder("Name (optional)"));
+            let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Name"));
             let shell_command_input =
                 cx.new(|cx| InputState::new(window, cx).placeholder("Shell command (optional)"));
             let avatar_input = cx.new(|cx| InputState::new(window, cx).default_value("🤖"));
-            let view = cx.new(|_| AgentEditor {
-                store,
-                settings,
-                workspace_id,
-                name_input,
-                shell_command_input,
-                avatar_input,
-                folder_path: String::new(),
-                agent_type: "claude".to_string(),
-                persona_id: None,
-                error: None,
+            let view = cx.new(|cx| {
+                let avatar_subscription = cx.subscribe_in(
+                    &avatar_input,
+                    window,
+                    |this: &mut AgentEditor, avatar_input, event, window, cx| {
+                        if matches!(event, InputEvent::Change) {
+                            this.clamp_avatar_to_one_character(avatar_input, window, cx);
+                        }
+                    },
+                );
+                let name_subscription =
+                    cx.subscribe(&name_input, |_: &mut AgentEditor, _, event, cx| {
+                        if matches!(event, InputEvent::Change) {
+                            cx.notify();
+                        }
+                    });
+                AgentEditor {
+                    store,
+                    settings,
+                    workspace_id,
+                    name_input,
+                    shell_command_input,
+                    avatar_input,
+                    _avatar_subscription: avatar_subscription,
+                    _name_subscription: name_subscription,
+                    folder_path: String::new(),
+                    agent_type: "claude".to_string(),
+                    persona_id: None,
+                    error: None,
+                }
             });
             cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
         });
@@ -2585,6 +2604,8 @@ struct AgentEditor {
     name_input: Entity<InputState>,
     shell_command_input: Entity<InputState>,
     avatar_input: Entity<InputState>,
+    _avatar_subscription: Subscription,
+    _name_subscription: Subscription,
     folder_path: String,
     agent_type: String,
     persona_id: Option<Uuid>,
@@ -2592,14 +2613,27 @@ struct AgentEditor {
 }
 
 impl AgentEditor {
+    /// Whether the form has everything required to create an agent - the
+    /// "Add Agent" button is disabled until this is true.
+    fn can_create(&self, cx: &Context<Self>) -> bool {
+        !self.name_input.read(cx).value().trim().is_empty()
+            && !self.folder_path.trim().is_empty()
+            && PathBuf::from(self.folder_path.trim()).is_dir()
+    }
+
     fn create(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let folder = self.folder_path.trim().to_string();
         if folder.is_empty() || !PathBuf::from(&folder).is_dir() {
-            self.error = Some("Choose an existing agent folder.".to_string());
+            self.error = Some("Choose a folder.".to_string());
             cx.notify();
             return;
         }
         let name = self.name_input.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            self.error = Some("Enter a name.".to_string());
+            cx.notify();
+            return;
+        }
         let avatar = self.avatar_input.read(cx).value().trim().to_string();
         let agent_type = self.agent_type.clone();
         let shell_command = self.shell_command_input.read(cx).value().trim().to_string();
@@ -2609,7 +2643,7 @@ impl AgentEditor {
             store.create(
                 folder,
                 knot_agents::CreateOptions {
-                    name: (!name.is_empty()).then_some(name),
+                    name: Some(name),
                     avatar: (!avatar.is_empty()).then_some(avatar),
                     agent_type: (!agent_type.is_empty()).then_some(agent_type),
                     shell_command: (!shell_command.is_empty()).then_some(shell_command),
@@ -2650,14 +2684,38 @@ impl AgentEditor {
         .detach();
     }
 
-    /// Focuses the avatar field, then opens the OS character picker - it
-    /// inserts the chosen character into whatever field has keyboard focus.
+    /// Clears the avatar field, then focuses it and opens the OS character
+    /// picker - it inserts the chosen character into whatever field has
+    /// keyboard focus, so clearing first makes the picker replace the
+    /// current avatar rather than append to it.
     fn choose_avatar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.avatar_input.update(cx, |input, cx| {
+            input.set_value("", window, cx);
             input.focus(window, cx);
         });
         #[cfg(target_os = "macos")]
         native_character_picker::open();
+    }
+
+    /// Keeps the avatar field to a single character (grapheme cluster), so
+    /// typing or pasting past one character doesn't silently grow it.
+    fn clamp_avatar_to_one_character(
+        &mut self,
+        avatar_input: &Entity<InputState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let value = avatar_input.read(cx).value().to_string();
+        let Some(first) = value.graphemes(true).next() else {
+            return;
+        };
+        if first.len() == value.len() {
+            return;
+        }
+        let first = first.to_string();
+        avatar_input.update(cx, |input, cx| {
+            input.set_value(first, window, cx);
+        });
     }
 }
 
@@ -2687,6 +2745,8 @@ impl Render for AgentEditor {
             .bg(cx.theme().background)
             .child(
                 div()
+                    .w_full()
+                    .text_center()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
                     .child("Add a new agent to your knot."),
@@ -2814,11 +2874,12 @@ impl Render for AgentEditor {
                         .on_click(cx.listener(|editor, _, _, cx| editor.choose_folder(cx))),
                     ),
             )
-            .children(
-                self.error
-                    .as_ref()
-                    .map(|error| div().text_sm().child(error.clone())),
-            )
+            .children(self.error.as_ref().map(|error| {
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().danger)
+                    .child(error.clone())
+            }))
             .child(div().flex_1())
             .child(
                 h_flex()
@@ -2834,6 +2895,7 @@ impl Render for AgentEditor {
                         Button::new("create-agent-editor")
                             .label("Add Agent")
                             .primary()
+                            .disabled(!self.can_create(cx))
                             .on_click(
                                 cx.listener(|editor, _, window, cx| editor.create(window, cx)),
                             ),

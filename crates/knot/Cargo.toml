@@ -20,6 +20,7 @@ knot-history = { path = "../knot-history" }
 tokio.workspace = true
 uuid.workspace = true
 gpui-kit = "0.6"
+unicode-segmentation = "1.13"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

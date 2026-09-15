@@ -60,3 +60,19 @@ and dialogs; follow them for any new pane, dialog, or window in `crates/knot`.
   when the window body should read as one continuous surface with no seam.
   Don't duplicate the window's title as an in-body heading once it's shown in
   a `TitleBar` or `TitlebarOptions.title` - one title per window, not two.
+- Form validation: a primary submit button (e.g. "Add Agent") should be
+  `.disabled(true)` until every required field is filled, not just rejected
+  with an error after the click. Wire a `Change` subscription on any input
+  the disabled check depends on so the button's enabled state updates live
+  as the user types, not only on the next unrelated re-render. Save the
+  click-time check too (defence in depth, and it produces the error message).
+  Error text uses `cx.theme().danger`, not the default text color, and reads
+  as an instruction ("Choose a folder.") not a restatement of the constraint
+  ("Choose an existing agent folder.").
+- Single-character fields (an avatar/emoji slot): back them with a real
+  `InputState`, but clamp on `Change` to the first extended grapheme cluster
+  (`unicode_segmentation::UnicodeSegmentation::graphemes(s, true).next()`,
+  not `.chars()` - a naive char split breaks multi-codepoint emoji). Before
+  invoking a native picker that inserts at the focus point (character
+  palette, etc.), clear the field first so the insertion replaces rather
+  than appends.
