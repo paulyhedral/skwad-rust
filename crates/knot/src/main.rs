@@ -863,18 +863,22 @@ fn open_settings_window(
                 .default_value(settings.autopilot_custom_prompt.clone())
         });
         let view = cx.new(|cx| {
-            let agent_options_subscription =
-                cx.subscribe(&agent_options_input, |this: &mut SettingsWindow, _, event, cx| {
+            let agent_options_subscription = cx.subscribe(
+                &agent_options_input,
+                |this: &mut SettingsWindow, _, event, cx| {
                     if matches!(event, InputEvent::Change) {
                         this.save_agent_options(cx);
                     }
-                });
-            let ai_api_key_subscription =
-                cx.subscribe(&ai_api_key_input, |this: &mut SettingsWindow, _, event, cx| {
+                },
+            );
+            let ai_api_key_subscription = cx.subscribe(
+                &ai_api_key_input,
+                |this: &mut SettingsWindow, _, event, cx| {
                     if matches!(event, InputEvent::Change) {
                         this.save_ai_api_key(cx);
                     }
-                });
+                },
+            );
             let autopilot_custom_prompt_subscription = cx.subscribe(
                 &autopilot_custom_prompt_input,
                 |this: &mut SettingsWindow, _, event, cx| {
@@ -1070,9 +1074,7 @@ impl SettingsWindow {
 
     fn autopilot_action_description(action: &str) -> &'static str {
         match action {
-            "ask" => {
-                "Show a dialog letting you switch to the agent, dismiss, or auto-continue."
-            }
+            "ask" => "Show a dialog letting you switch to the agent, dismiss, or auto-continue.",
             "continue" => "Automatically send \"yes, continue\" to the agent.",
             "custom" => {
                 "Use your own prompt to decide what to reply. The LLM response is injected \
@@ -1100,8 +1102,11 @@ impl SettingsWindow {
     }
 
     fn save_autopilot_custom_prompt(&mut self, cx: &mut Context<Self>) {
-        self.settings.autopilot_custom_prompt =
-            self.autopilot_custom_prompt_input.read(cx).value().to_string();
+        self.settings.autopilot_custom_prompt = self
+            .autopilot_custom_prompt_input
+            .read(cx)
+            .value()
+            .to_string();
         self.persist();
     }
 
@@ -1385,16 +1390,22 @@ impl SettingsWindow {
                                                 ("Copilot", "copilot"),
                                                 ("Shell", "shell"),
                                             ] {
-                                                menu = menu.item(PopupMenuItem::new(label).on_click({
-                                                    let settings_window = settings_window.clone();
-                                                    move |_, window, app| {
-                                                        settings_window.update(app, |view, cx| {
-                                                            view.select_agent_type(
-                                                                value, window, cx,
-                                                            );
-                                                        })
-                                                    }
-                                                }));
+                                                menu = menu.item(
+                                                    PopupMenuItem::new(label).on_click({
+                                                        let settings_window =
+                                                            settings_window.clone();
+                                                        move |_, window, app| {
+                                                            settings_window.update(
+                                                                app,
+                                                                |view, cx| {
+                                                                    view.select_agent_type(
+                                                                        value, window, cx,
+                                                                    );
+                                                                },
+                                                            )
+                                                        }
+                                                    }),
+                                                );
                                             }
                                             menu
                                         }
@@ -1412,8 +1423,12 @@ impl SettingsWindow {
 
     fn render_personas(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let settings_window = cx.entity();
-        let personas: Vec<knot_core::Persona> =
-            self.settings.active_personas().into_iter().cloned().collect();
+        let personas: Vec<knot_core::Persona> = self
+            .settings
+            .active_personas()
+            .into_iter()
+            .cloned()
+            .collect();
 
         let list = if personas.is_empty() {
             div()
@@ -1431,31 +1446,32 @@ impl SettingsWindow {
                         .justify_between()
                         .gap_2()
                         .child(
-                            v_flex().flex_1().child(div().child(persona.name.clone())).child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(preview),
-                            ),
+                            v_flex()
+                                .flex_1()
+                                .child(div().child(persona.name.clone()))
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(preview),
+                                ),
                         )
                         .child(
                             h_flex()
                                 .gap_2()
-                                .child(
-                                    Button::new(("persona-edit", index))
-                                        .label("Edit")
-                                        .on_click({
-                                            let parent = settings_window.downgrade();
-                                            let persona = persona.clone();
-                                            move |_, _, app| {
-                                                open_persona_editor(
-                                                    parent.clone(),
-                                                    Some(persona.clone()),
-                                                    app,
-                                                );
-                                            }
-                                        }),
-                                )
+                                .child(Button::new(("persona-edit", index)).label("Edit").on_click(
+                                    {
+                                        let parent = settings_window.downgrade();
+                                        let persona = persona.clone();
+                                        move |_, _, app| {
+                                            open_persona_editor(
+                                                parent.clone(),
+                                                Some(persona.clone()),
+                                                app,
+                                            );
+                                        }
+                                    },
+                                ))
                                 .child(
                                     Button::new(("persona-delete", index))
                                         .label("Delete")
@@ -1483,16 +1499,12 @@ impl SettingsWindow {
                     .child(
                         h_flex()
                             .gap_2()
-                            .child(
-                                Button::new("personas-add")
-                                    .label("Add Persona…")
-                                    .on_click({
-                                        let parent = settings_window.downgrade();
-                                        move |_, _, app| {
-                                            open_persona_editor(parent.clone(), None, app);
-                                        }
-                                    }),
-                            )
+                            .child(Button::new("personas-add").label("Add Persona…").on_click({
+                                let parent = settings_window.downgrade();
+                                move |_, _, app| {
+                                    open_persona_editor(parent.clone(), None, app);
+                                }
+                            }))
                             .child(
                                 Button::new("personas-restore-defaults")
                                     .label("Restore Defaults")
@@ -1591,14 +1603,22 @@ impl SettingsWindow {
                                                 ("Anthropic", "anthropic"),
                                                 ("Google", "google"),
                                             ] {
-                                                menu = menu.item(PopupMenuItem::new(label).on_click({
-                                                    let settings_window = settings_window.clone();
-                                                    move |_, _, app| {
-                                                        settings_window.update(app, |view, cx| {
-                                                            view.select_ai_provider(value, cx);
-                                                        })
-                                                    }
-                                                }));
+                                                menu = menu.item(
+                                                    PopupMenuItem::new(label).on_click({
+                                                        let settings_window =
+                                                            settings_window.clone();
+                                                        move |_, _, app| {
+                                                            settings_window.update(
+                                                                app,
+                                                                |view, cx| {
+                                                                    view.select_ai_provider(
+                                                                        value, cx,
+                                                                    );
+                                                                },
+                                                            )
+                                                        }
+                                                    }),
+                                                );
                                             }
                                             menu
                                         }
@@ -1644,14 +1664,22 @@ impl SettingsWindow {
                                                 ("Auto-continue", "continue"),
                                                 ("Custom", "custom"),
                                             ] {
-                                                menu = menu.item(PopupMenuItem::new(label).on_click({
-                                                    let settings_window = settings_window.clone();
-                                                    move |_, _, app| {
-                                                        settings_window.update(app, |view, cx| {
-                                                            view.select_autopilot_action(value, cx);
-                                                        })
-                                                    }
-                                                }));
+                                                menu = menu.item(
+                                                    PopupMenuItem::new(label).on_click({
+                                                        let settings_window =
+                                                            settings_window.clone();
+                                                        move |_, _, app| {
+                                                            settings_window.update(
+                                                                app,
+                                                                |view, cx| {
+                                                                    view.select_autopilot_action(
+                                                                        value, cx,
+                                                                    );
+                                                                },
+                                                            )
+                                                        }
+                                                    }),
+                                                );
                                             }
                                             menu
                                         }
@@ -3989,7 +4017,10 @@ mod tests {
     #[test]
     fn ai_model_for_matches_swift_reference_defaults() {
         assert_eq!(SettingsWindow::ai_model_for("openai"), "gpt-5-mini");
-        assert_eq!(SettingsWindow::ai_model_for("anthropic"), "claude-haiku-4-5");
+        assert_eq!(
+            SettingsWindow::ai_model_for("anthropic"),
+            "claude-haiku-4-5"
+        );
         assert_eq!(
             SettingsWindow::ai_model_for("google"),
             "gemini-flash-lite-latest"
@@ -3999,7 +4030,10 @@ mod tests {
 
     #[test]
     fn autopilot_action_label_maps_known_actions() {
-        assert_eq!(SettingsWindow::autopilot_action_label("mark"), "Mark conversation");
+        assert_eq!(
+            SettingsWindow::autopilot_action_label("mark"),
+            "Mark conversation"
+        );
         assert_eq!(SettingsWindow::autopilot_action_label("ask"), "Ask me");
         assert_eq!(
             SettingsWindow::autopilot_action_label("continue"),

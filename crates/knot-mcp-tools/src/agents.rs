@@ -253,8 +253,8 @@ pub fn set_status(store: &mut AgentStore, arguments: &serde_json::Value) -> Tool
 mod tests {
     use std::path::Path;
 
-    use serde_json::json;
     use knot_git::Runner;
+    use serde_json::json;
 
     use super::*;
 
