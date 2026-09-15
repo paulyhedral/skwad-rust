@@ -2852,7 +2852,7 @@ impl Render for WorkspaceWindow {
             else {
                 return v_flex()
                     .size_full()
-                    .child(TitleBar::new())
+                    .child(TitleBar::new().border_color(gpui_kit::transparent_black()))
                     .child("Workspace no longer exists.");
             };
             let agents = workspace
@@ -2910,7 +2910,11 @@ impl Render for WorkspaceWindow {
 
         v_flex()
             .size_full()
-            .child(TitleBar::new().child(workspace_name.clone()))
+            .child(
+                TitleBar::new()
+                    .border_color(gpui_kit::transparent_black())
+                    .child(workspace_name.clone()),
+            )
             .child(
                 h_flex()
                     .flex_1()
@@ -2923,17 +2927,6 @@ impl Render for WorkspaceWindow {
                             .gap_2()
                             .p_4()
                             .bg(cx.theme().muted)
-                            .child(
-                                v_flex()
-                                    .gap_1()
-                                    .child(div().text_lg().child(workspace_name.clone()))
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child("Workspace"),
-                                    ),
-                            )
                             .children(agent_rows)
                             .child(div().flex_1())
                             .children(
@@ -3261,28 +3254,26 @@ impl Render for WorkspaceManager {
         v_flex()
             .size_full()
             .bg(cx.theme().background)
-            .child(TitleBar::new().child("Workspaces"))
+            .child(
+                TitleBar::new()
+                    .border_color(gpui_kit::transparent_black())
+                    .child("Workspaces"),
+            )
             .child(
                 v_flex()
                     .flex_1()
                     .gap_4()
                     .p_4()
                     .child(
-                        h_flex()
-                            .items_center()
-                            .child(div().text_2xl().child("Workspaces"))
-                            .child(div().flex_1())
-                            .child(
-                                Button::new("new-workspace")
-                                    .icon(IconName::Plus)
-                                    .primary()
-                                    .tooltip("New workspace")
-                                    .on_click(cx.listener(
-                                        |manager, _: &ClickEvent, window, cx| {
-                                            manager.open_workspace_dialog(None, window, cx);
-                                        },
-                                    )),
-                            ),
+                        h_flex().justify_end().child(
+                            Button::new("new-workspace")
+                                .icon(IconName::Plus)
+                                .primary()
+                                .tooltip("New workspace")
+                                .on_click(cx.listener(|manager, _: &ClickEvent, window, cx| {
+                                    manager.open_workspace_dialog(None, window, cx);
+                                })),
+                        ),
                     )
                     .child(v_flex().gap_2().children(rows))
                     .children(self.error.as_ref().map(|error| div().child(error.clone())))
