@@ -14,8 +14,8 @@ use gpui_kit::component::*;
 use gpui_kit::{
     App, AppContext, AsyncApp, ClickEvent, Context, Entity, InteractiveElement, IntoElement, Menu,
     MenuItem, ParentElement, PathPromptOptions, Render, StatefulInteractiveElement, Styled,
-    Subscription, SystemMenuType, WeakEntity, Window, WindowBounds, WindowOptions, actions, div,
-    px, size,
+    Subscription, SystemMenuType, SystemNotification, SystemNotificationResponse, WeakEntity,
+    Window, WindowBounds, WindowOptions, actions, div, px, size,
 };
 use skwad_activity::EventSink;
 use skwad_mcp::ToolCatalog;
@@ -347,6 +347,42 @@ fn should_show_awaiting_notice(
     selected_agent != Some(agent_id)
         && !message.is_empty()
         && last_message.is_none_or(|last| last != message)
+}
+
+const AWAITING_INPUT_DEFAULT_BODY: &str = "Needs your attention";
+
+/// Whether a desktop notification should be raised for an agent entering
+/// Awaiting input, gating the same "is this a fresh prompt for an agent the
+/// user isn't already looking at" signal `should_show_awaiting_notice`
+/// computes for the in-window toast behind the
+/// `desktop_notifications_enabled` setting.
+fn should_notify(desktop_notifications_enabled: bool, show_awaiting_notice: bool) -> bool {
+    desktop_notifications_enabled && show_awaiting_notice
+}
+
+/// The notification body: the hook-supplied message when non-empty,
+/// otherwise a default.
+fn notification_body(message: &str) -> &str {
+    if message.is_empty() {
+        AWAITING_INPUT_DEFAULT_BODY
+    } else {
+        message
+    }
+}
+
+/// Parses a [`SystemNotificationResponse`]'s tag back into the agent id it
+/// was posted for, or `None` if the tag isn't a valid uuid.
+///
+/// The full "select this exact agent" click-to-navigate parity with the
+/// Swift reference needs a registry mapping agent id -> owning workspace
+/// window, which doesn't exist yet (each workspace is an independent
+/// `Shell` window/entity with its own `agent_selection`, and nothing
+/// currently tracks which window owns which agent across windows). Until
+/// that exists, a click only raises the app to the front
+/// (`App::activate(true)`, same as the existing `ShowAllWindows` action);
+/// it doesn't switch the front window's selection to the clicked agent.
+fn notification_response_agent_id(response: &SystemNotificationResponse) -> Option<Uuid> {
+    Uuid::parse_str(&response.tag).ok()
 }
 
 struct Shell {
@@ -2042,14 +2078,13 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
                 let Some(message) = message else {
                     continue;
                 };
-                if !should_show_awaiting_notice(
-                    entity.read(app).agent_selection,
+                let selected = entity.read(app).agent_selection;
+                let show_notice = should_show_awaiting_notice(
+                    selected,
                     id,
                     &message,
                     last_awaiting_message.get(&id),
-                ) {
-                    continue;
-                }
+                );
                 let Some(agent_name) = agents
                     .iter()
                     .find(|agent| agent.id == id)
@@ -2057,6 +2092,20 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
                 else {
                     continue;
                 };
+                if should_notify(
+                    entity.read(app).settings.desktop_notifications_enabled,
+                    show_notice,
+                ) {
+                    app.show_system_notification(SystemNotification {
+                        tag: id.to_string().into(),
+                        title: format!("Skwad - {agent_name}").into(),
+                        body: notification_body(&message).into(),
+                        actions: Vec::new(),
+                    });
+                }
+                if !show_notice {
+                    continue;
+                }
                 last_awaiting_message.insert(id, message.clone());
                 awaiting_notice = Some(AwaitingNotice {
                     agent_name,
@@ -2294,6 +2343,12 @@ fn main() {
             cx.on_action(hide_others);
             cx.on_action(show_all_windows);
             set_app_menus(cx);
+
+            cx.on_system_notification_response(|response, cx| {
+                if notification_response_agent_id(&response).is_some() {
+                    cx.activate(true);
+                }
+            });
 
             let options = manager_window_options(cx);
             cx.open_window(options, |window, cx| {
@@ -2813,5 +2868,42 @@ mod tests {
 
         assert_eq!(initial_agent_selection(&restored), Some(second));
         assert_ne!(initial_agent_selection(&restored), Some(first));
+    }
+
+    #[test]
+    fn should_notify_requires_setting_and_notice() {
+        assert!(should_notify(true, true));
+        assert!(!should_notify(false, true));
+        assert!(!should_notify(true, false));
+        assert!(!should_notify(false, false));
+    }
+
+    #[test]
+    fn notification_body_uses_message_when_present() {
+        assert_eq!(notification_body("Grant access?"), "Grant access?");
+    }
+
+    #[test]
+    fn notification_body_defaults_on_empty() {
+        assert_eq!(notification_body(""), AWAITING_INPUT_DEFAULT_BODY);
+    }
+
+    #[test]
+    fn notification_response_agent_id_parses_valid_tag() {
+        let id = Uuid::new_v4();
+        let response = SystemNotificationResponse {
+            tag: id.to_string().into(),
+            action_id: None,
+        };
+        assert_eq!(notification_response_agent_id(&response), Some(id));
+    }
+
+    #[test]
+    fn notification_response_agent_id_none_for_invalid_tag() {
+        let response = SystemNotificationResponse {
+            tag: "not-a-uuid".into(),
+            action_id: None,
+        };
+        assert_eq!(notification_response_agent_id(&response), None);
     }
 }
