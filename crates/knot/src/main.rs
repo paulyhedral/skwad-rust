@@ -34,28 +34,25 @@ const OUTPUT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const CHECK_INBOX_PROMPT: &str = "Check your inbox for questions or instructions from other agents. Update your status and immediately execute what is being asked without confirmation.";
 type AwaitingInputQueue = Arc<Mutex<Vec<(Uuid, Option<String>)>>>;
 
-/// Embedded UI font (SIL OFL licensed; see `assets/fonts/MANROPE-LICENSE.txt`),
+/// Embedded UI font (SIL OFL licensed; see `assets/fonts/ADAMINA-LICENSE.txt`),
 /// so the app looks the same regardless of what's installed on the system.
-const MANROPE_REGULAR: &[u8] = include_bytes!("../assets/fonts/Manrope-Regular.ttf");
-const MANROPE_MEDIUM: &[u8] = include_bytes!("../assets/fonts/Manrope-Medium.ttf");
-const MANROPE_SEMIBOLD: &[u8] = include_bytes!("../assets/fonts/Manrope-SemiBold.ttf");
-const MANROPE_BOLD: &[u8] = include_bytes!("../assets/fonts/Manrope-Bold.ttf");
+/// Adamina ships one weight only; the renderer synthesizes bold for
+/// `font_semibold`/`font_bold` text.
+const ADAMINA_REGULAR: &[u8] = include_bytes!("../assets/fonts/Adamina-Regular.ttf");
 
-/// Registers the embedded Manrope family and sets it as the UI font, plus a
+/// Registers the embedded Adamina family and sets it as the UI font, plus a
 /// distinct accent color, so the app doesn't rely on the platform's generic
 /// UI font and neutral-gray default theme.
 fn apply_visual_identity(cx: &mut App) {
-    if let Err(error) = cx.text_system().add_fonts(vec![
-        std::borrow::Cow::Borrowed(MANROPE_REGULAR),
-        std::borrow::Cow::Borrowed(MANROPE_MEDIUM),
-        std::borrow::Cow::Borrowed(MANROPE_SEMIBOLD),
-        std::borrow::Cow::Borrowed(MANROPE_BOLD),
-    ]) {
-        eprintln!("failed to register Manrope font: {error}");
+    if let Err(error) = cx
+        .text_system()
+        .add_fonts(vec![std::borrow::Cow::Borrowed(ADAMINA_REGULAR)])
+    {
+        eprintln!("failed to register Adamina font: {error}");
     }
 
     let theme = cx.global_mut::<Theme>();
-    theme.font_family = "Manrope".into();
+    theme.font_family = "Adamina".into();
     let accent: gpui_kit::Hsla = rgb(0x3B82F6).into();
     let accent_hover: gpui_kit::Hsla = rgb(0x2563EB).into();
     let accent_active: gpui_kit::Hsla = rgb(0x1D4ED8).into();
@@ -2096,7 +2093,7 @@ impl SettingsWindow {
                         h_flex()
                             .flex_1()
                             .gap_2()
-                            .items_center()
+                            .items_start()
                             .child(if install_command.is_empty() {
                                 div()
                                     .flex_1()
@@ -2106,11 +2103,9 @@ impl SettingsWindow {
                                     .into_any_element()
                             } else {
                                 Self::mono_text(cx, install_command.clone())
-                                    .id("mcp-install-command-text")
                                     .flex_1()
                                     .min_w_0()
-                                    .whitespace_nowrap()
-                                    .overflow_x_scroll()
+                                    .whitespace_normal()
                                     .into_any_element()
                             })
                             .child(
