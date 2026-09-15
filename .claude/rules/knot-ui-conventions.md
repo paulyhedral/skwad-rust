@@ -69,6 +69,24 @@ and dialogs; follow them for any new pane, dialog, or window in `crates/knot`.
   Error text uses `cx.theme().danger`, not the default text color, and reads
   as an instruction ("Choose a folder.") not a restatement of the constraint
   ("Choose an existing agent folder.").
+- Swift-parity dialogs (agent editor, and similar): when asked to match the
+  Swift reference (`Skwad/Views/...`) rather than follow the Settings
+  window's own conventions, check the actual Swift source and, if present,
+  a matching screenshot under `images/screenshots/` before rewriting -
+  don't guess the layout from memory. That reference uses left-aligned
+  labels with a trailing control (`LabeledContent` style, via
+  `AgentEditor::dialog_row`) and borderless filled card sections
+  (`GroupBox::new().fill()`, via `AgentEditor::dialog_section`), which is
+  deliberately different from the Settings window's right-aligned label
+  column and titled/outlined `GroupBox` - the two dialogs are allowed to
+  diverge because they're copying different references.
+- Agent list rows (workspace sidebar): avatar at a fixed size with no
+  background box (plain emoji glyph, matching Swift's `AvatarView`), name
+  bold, persona line prefixed with an icon when the agent has one, then a
+  status/title line and a folder-name line (last path component only, not
+  the full path), with a small state-colored dot trailing when the agent
+  isn't a shell agent. Map `AgentState` to a dot color the same way the
+  Swift reference does: idle=green, working=orange, awaiting-input/error=red.
 - Single-character fields (an avatar/emoji slot): back them with a real
   `InputState`, but clamp on `Change` to the first extended grapheme cluster
   (`unicode_segmentation::UnicodeSegmentation::graphemes(s, true).next()`,

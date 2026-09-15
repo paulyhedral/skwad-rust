@@ -186,6 +186,16 @@ fn state_label(state: knot_agents::AgentState) -> &'static str {
     }
 }
 
+/// Status-dot color for the agent's automatic state, matching the Swift
+/// reference's `AgentState.color` (idle=green, working=orange, input/error=red).
+fn state_color(state: knot_agents::AgentState) -> gpui_kit::Hsla {
+    match state {
+        knot_agents::AgentState::Idle => rgb(0x22C55E).into(),
+        knot_agents::AgentState::Running => rgb(0xF97316).into(),
+        knot_agents::AgentState::Input | knot_agents::AgentState::Error => rgb(0xEF4444).into(),
+    }
+}
+
 #[derive(Debug, PartialEq)]
 struct LayoutModel {
     workspace_rows: Vec<WorkspaceRow>,
@@ -2720,17 +2730,35 @@ impl AgentEditor {
 }
 
 impl AgentEditor {
-    /// Fixed label column width for this dialog's rows, wide enough that
-    /// "Coding agent" never wraps.
-    const LABEL_WIDTH: f32 = 120.;
+    /// A `LabeledContent`-style row: label at the leading edge, control(s)
+    /// trailing - matching the Swift reference's `Form` rows, as opposed to
+    /// the Settings window's fixed right-aligned label column.
+    fn dialog_row(label: &'static str, control: impl IntoElement) -> impl IntoElement {
+        h_flex()
+            .justify_between()
+            .items_center()
+            .gap_3()
+            .child(div().child(label))
+            .child(control)
+    }
 
-    fn label(text: &'static str) -> gpui_kit::Div {
-        div()
-            .w(px(Self::LABEL_WIDTH))
-            .flex_shrink_0()
-            .text_right()
-            .whitespace_nowrap()
-            .child(text)
+    /// A card grouping related rows, separated by hairlines - the Swift
+    /// reference's `Form` sections use a filled, borderless card rather than
+    /// the Settings window's titled, outlined `GroupBox`.
+    fn dialog_section(cx: &Context<Self>, rows: Vec<gpui_kit::AnyElement>) -> impl IntoElement {
+        let count = rows.len();
+        GroupBox::new().fill().child(
+            v_flex()
+                .children(rows.into_iter().enumerate().map(|(index, row)| {
+                    let row = div().py_2().child(row);
+                    if index + 1 < count {
+                        row.border_b_1().border_color(cx.theme().border)
+                    } else {
+                        row
+                    }
+                }))
+                .into_any_element(),
+        )
     }
 }
 
@@ -2738,24 +2766,14 @@ impl Render for AgentEditor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let editor = cx.entity();
         let personas = self.settings.personas.clone();
-        v_flex()
-            .size_full()
-            .gap_3()
-            .p_5()
-            .bg(cx.theme().background)
-            .child(
-                div()
-                    .w_full()
-                    .text_center()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("Add a new agent to your knot."),
-            )
-            .child(
+        let is_shell = self.agent_type == "shell";
+
+        let identity_rows = vec![
+            Self::dialog_row("Name", Input::new(&self.name_input).w(px(200.))).into_any_element(),
+            Self::dialog_row(
+                "Avatar",
                 h_flex()
                     .gap_2()
-                    .child(Self::label("Name"))
-                    .child(Input::new(&self.name_input).flex_1())
                     .child(Input::new(&self.avatar_input).w(px(48.)))
                     .child(
                         SettingsWindow::icon_button(
@@ -2769,51 +2787,59 @@ impl Render for AgentEditor {
                         ),
                     ),
             )
-            .child(
-                h_flex().gap_2().child(Self::label("Coding agent")).child(
-                    Button::new("agent-type-picker")
-                        .label(SettingsWindow::agent_type_label(&self.agent_type))
-                        .dropdown_caret(true)
-                        .dropdown_menu({
-                            let editor = editor.clone();
-                            move |menu, _, _| {
-                                menu.item(PopupMenuItem::new("Claude").on_click({
+            .into_any_element(),
+        ];
+
+        let mut agent_rows = vec![
+            Self::dialog_row(
+                "Coding agent",
+                Button::new("agent-type-picker")
+                    .label(SettingsWindow::agent_type_label(&self.agent_type))
+                    .dropdown_caret(true)
+                    .dropdown_menu({
+                        let editor = editor.clone();
+                        move |menu, _, _| {
+                            menu.item(PopupMenuItem::new("Claude").on_click({
+                                let editor = editor.clone();
+                                move |_, _, app| {
+                                    editor.update(app, |e, _| e.agent_type = "claude".to_string())
+                                }
+                            }))
+                            .item(PopupMenuItem::new("Codex").on_click({
+                                let editor = editor.clone();
+                                move |_, _, app| {
+                                    editor.update(app, |e, _| e.agent_type = "codex".to_string())
+                                }
+                            }))
+                            .item(
+                                PopupMenuItem::new("Shell").on_click({
                                     let editor = editor.clone();
                                     move |_, _, app| {
                                         editor
-                                            .update(app, |e, _| e.agent_type = "claude".to_string())
+                                            .update(app, |e, _| e.agent_type = "shell".to_string())
                                     }
-                                }))
-                                .item(PopupMenuItem::new("Codex").on_click({
-                                    let editor = editor.clone();
-                                    move |_, _, app| {
-                                        editor
-                                            .update(app, |e, _| e.agent_type = "codex".to_string())
-                                    }
-                                }))
-                                .item(
-                                    PopupMenuItem::new("Shell").on_click({
-                                        let editor = editor.clone();
-                                        move |_, _, app| {
-                                            editor.update(app, |e, _| {
-                                                e.agent_type = "shell".to_string()
-                                            })
-                                        }
-                                    }),
-                                )
-                            }
-                        }),
-                ),
+                                }),
+                            )
+                        }
+                    }),
             )
-            .child(
-                h_flex().gap_2().child(Self::label("Command")).child(
+            .into_any_element(),
+        ];
+        if is_shell {
+            agent_rows.push(
+                Self::dialog_row(
+                    "Command",
                     Input::new(&self.shell_command_input)
-                        .flex_1()
+                        .w(px(200.))
                         .font_family(cx.theme().mono_font_family.clone()),
-                ),
-            )
-            .child(
-                h_flex().gap_2().child(Self::label("Persona")).child(
+                )
+                .into_any_element(),
+            );
+        }
+        if !personas.is_empty() {
+            agent_rows.push(
+                Self::dialog_row(
+                    "Persona",
                     Button::new("agent-persona-picker")
                         .label(
                             self.persona_id
@@ -2822,7 +2848,6 @@ impl Render for AgentEditor {
                                 })
                                 .unwrap_or_else(|| "None".to_string()),
                         )
-                        .flex_1()
                         .dropdown_caret(true)
                         .dropdown_menu({
                             let editor = editor.clone();
@@ -2845,16 +2870,20 @@ impl Render for AgentEditor {
                                 menu
                             }
                         }),
-                ),
-            )
-            .child(
+                )
+                .into_any_element(),
+            );
+        }
+
+        let folder_rows = vec![
+            Self::dialog_row(
+                "Folder",
                 h_flex()
                     .gap_2()
-                    .child(Self::label("Folder"))
+                    .items_center()
                     .child(
                         div()
-                            .flex_1()
-                            .min_w_0()
+                            .max_w(px(220.))
                             .text_sm()
                             .whitespace_normal()
                             .text_color(cx.theme().muted_foreground)
@@ -2874,6 +2903,29 @@ impl Render for AgentEditor {
                         .on_click(cx.listener(|editor, _, _, cx| editor.choose_folder(cx))),
                     ),
             )
+            .into_any_element(),
+        ];
+
+        v_flex()
+            .size_full()
+            .gap_3()
+            .p_5()
+            .bg(cx.theme().background)
+            .child(
+                v_flex()
+                    .w_full()
+                    .items_center()
+                    .child(div().text_lg().font_semibold().child("New Agent"))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("Add a new agent to your knot."),
+                    ),
+            )
+            .child(Self::dialog_section(cx, identity_rows))
+            .child(Self::dialog_section(cx, agent_rows))
+            .child(Self::dialog_section(cx, folder_rows))
             .children(self.error.as_ref().map(|error| {
                 div()
                     .text_sm()
@@ -2922,42 +2974,99 @@ impl Render for WorkspaceWindow {
                 .iter()
                 .filter_map(|id| store.agent(*id))
                 .map(|agent| {
+                    let persona_name = agent.persona_id.and_then(|id| {
+                        self.settings
+                            .personas
+                            .iter()
+                            .find(|persona| persona.id == id)
+                            .map(|persona| persona.name.clone())
+                    });
                     (
                         agent.id,
                         agent.avatar.clone(),
                         agent.name.clone(),
                         agent.folder.clone(),
+                        agent.state,
+                        agent.is_shell(),
+                        agent.header_title().to_string(),
+                        persona_name,
                     )
                 })
                 .collect::<Vec<_>>();
             (workspace.name.clone(), agents)
         };
 
-        let agent_rows = agents.into_iter().map(|(id, avatar, name, folder)| {
-            Button::new(format!("workspace-agent-{id}"))
-                .h(px(76.))
-                .child(
-                    v_flex()
-                        .w_full()
-                        .gap_2()
-                        .child(div().text_lg().child(format!("{avatar}  {name}")))
-                        .child(
-                            div()
-                                .w_full()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .overflow_hidden()
-                                .whitespace_nowrap()
-                                .text_ellipsis()
-                                .child(folder),
-                        ),
-                )
-                .selected(self.selected_agent == Some(id))
-                .on_click(cx.listener(move |view, _: &ClickEvent, _window, cx| {
-                    view.selected_agent = Some(id);
-                    cx.notify();
-                }))
-        });
+        let agent_rows = agents.into_iter().map(
+            |(id, avatar, name, folder, state, is_shell, header_title, persona_name)| {
+                let folder_name = PathBuf::from(&folder)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or(folder);
+                Button::new(format!("workspace-agent-{id}"))
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .gap_3()
+                            .items_start()
+                            .child(
+                                div()
+                                    .w(px(40.))
+                                    .h(px(40.))
+                                    .flex_shrink_0()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_2xl()
+                                    .child(avatar),
+                            )
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .gap_0p5()
+                                    .child(div().font_semibold().child(name))
+                                    .children(persona_name.map(|persona_name| {
+                                        div()
+                                            .text_sm()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(format!("👤 {persona_name}"))
+                                    }))
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .overflow_hidden()
+                                            .whitespace_nowrap()
+                                            .text_ellipsis()
+                                            .child(header_title),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .overflow_hidden()
+                                            .whitespace_nowrap()
+                                            .text_ellipsis()
+                                            .child(folder_name),
+                                    ),
+                            )
+                            .children((!is_shell).then(|| {
+                                div()
+                                    .flex_shrink_0()
+                                    .w(px(8.))
+                                    .h(px(8.))
+                                    .mt_1()
+                                    .rounded_full()
+                                    .bg(state_color(state))
+                            })),
+                    )
+                    .selected(self.selected_agent == Some(id))
+                    .on_click(cx.listener(move |view, _: &ClickEvent, _window, cx| {
+                        view.selected_agent = Some(id);
+                        cx.notify();
+                    }))
+            },
+        );
 
         let selected_title = self
             .selected_agent
