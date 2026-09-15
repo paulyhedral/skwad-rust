@@ -10,7 +10,7 @@ use std::time::Duration;
 use gpui_kit::base::Selectable;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::*;
@@ -841,9 +841,31 @@ fn open_settings_window(
     }
     let options = settings_window_options(cx);
     match cx.open_window(options, move |window, cx| {
-        let view = cx.new(|_| SettingsWindow {
-            settings,
-            selected_tab: SettingsTab::General,
+        let selected_agent_type = "claude".to_string();
+        let initial_options = settings
+            .agent_options
+            .get(&selected_agent_type)
+            .cloned()
+            .unwrap_or_default();
+        let agent_options_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Extra CLI options")
+                .default_value(initial_options)
+        });
+        let view = cx.new(|cx| {
+            let agent_options_subscription =
+                cx.subscribe(&agent_options_input, |this: &mut SettingsWindow, _, event, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        this.save_agent_options(cx);
+                    }
+                });
+            SettingsWindow {
+                settings,
+                selected_tab: SettingsTab::General,
+                selected_agent_type,
+                agent_options_input,
+                _agent_options_subscription: agent_options_subscription,
+            }
         });
         cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
     }) {
@@ -890,6 +912,9 @@ impl SettingsTab {
 struct SettingsWindow {
     settings: knot_core::Settings,
     selected_tab: SettingsTab,
+    selected_agent_type: String,
+    agent_options_input: Entity<InputState>,
+    _agent_options_subscription: Subscription,
 }
 
 impl SettingsWindow {
@@ -916,6 +941,71 @@ impl SettingsWindow {
     /// on; gate its toggle on that rather than hiding it.
     fn restore_conversation_toggle_enabled(restore_layout_on_launch: bool) -> bool {
         restore_layout_on_launch
+    }
+
+    fn agent_type_label(agent_type: &str) -> &'static str {
+        match agent_type {
+            "codex" => "Codex",
+            "opencode" => "OpenCode",
+            "gemini" => "Gemini",
+            "copilot" => "Copilot",
+            "shell" => "Shell",
+            _ => "Claude",
+        }
+    }
+
+    fn choose_source_folder(&mut self, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("Choose Source Folder".into()),
+        });
+        let settings_window = cx.entity();
+        cx.spawn(async move |_this, cx| {
+            let Ok(Ok(Some(paths))) = receiver.await else {
+                return;
+            };
+            let Some(path) = paths.into_iter().next() else {
+                return;
+            };
+            cx.update(|app| {
+                settings_window.update(app, |view, cx| {
+                    view.settings.source_base_folder = path.to_string_lossy().into_owned();
+                    view.persist();
+                    cx.notify();
+                });
+            });
+        })
+        .detach();
+    }
+
+    fn clear_source_folder(&mut self, cx: &mut Context<Self>) {
+        self.settings.source_base_folder.clear();
+        self.persist();
+        cx.notify();
+    }
+
+    fn select_agent_type(&mut self, agent_type: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.selected_agent_type = agent_type.to_string();
+        let value = self
+            .settings
+            .agent_options
+            .get(agent_type)
+            .cloned()
+            .unwrap_or_default();
+        cx.update_entity(&self.agent_options_input, |input, input_cx| {
+            input.set_value(value, window, input_cx);
+        });
+        cx.notify();
+    }
+
+    fn save_agent_options(&mut self, cx: &mut Context<Self>) {
+        let value = self.agent_options_input.read(cx).value().to_string();
+        self.settings
+            .agent_options
+            .insert(self.selected_agent_type.clone(), value);
+        self.persist();
     }
 }
 
@@ -1098,13 +1188,112 @@ impl SettingsWindow {
                     ),
             )
     }
+
+    fn render_coding(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let settings_window = cx.entity();
+        let source_base_folder = self.settings.source_base_folder.clone();
+        let folder_label = if source_base_folder.is_empty() {
+            "Not configured".to_string()
+        } else {
+            source_base_folder
+        };
+        let agent_type_label = Self::agent_type_label(&self.selected_agent_type);
+
+        v_flex()
+            .gap_4()
+            .child(div().text_xl().child("Coding"))
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(Self::section("Source Folder"))
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().text_sm().child(folder_label))
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(
+                                        Button::new("coding-choose-source-folder")
+                                            .label("Choose…")
+                                            .on_click({
+                                                let settings_window = settings_window.clone();
+                                                move |_, _, app| {
+                                                    settings_window.update(app, |view, cx| {
+                                                        view.choose_source_folder(cx);
+                                                    })
+                                                }
+                                            }),
+                                    )
+                                    .child(
+                                        Button::new("coding-clear-source-folder")
+                                            .label("Clear")
+                                            .on_click({
+                                                let settings_window = settings_window.clone();
+                                                move |_, _, app| {
+                                                    settings_window.update(app, |view, cx| {
+                                                        view.clear_source_folder(cx);
+                                                    })
+                                                }
+                                            }),
+                                    ),
+                            ),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(Self::section("Agent Options"))
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("Coding agent"))
+                            .child(
+                                Button::new("coding-agent-type-picker")
+                                    .label(agent_type_label)
+                                    .dropdown_menu({
+                                        let settings_window = settings_window.clone();
+                                        move |menu, _, _| {
+                                            let mut menu = menu;
+                                            for (label, value) in [
+                                                ("Claude", "claude"),
+                                                ("Codex", "codex"),
+                                                ("OpenCode", "opencode"),
+                                                ("Gemini", "gemini"),
+                                                ("Copilot", "copilot"),
+                                                ("Shell", "shell"),
+                                            ] {
+                                                menu = menu.item(PopupMenuItem::new(label).on_click({
+                                                    let settings_window = settings_window.clone();
+                                                    move |_, window, app| {
+                                                        settings_window.update(app, |view, cx| {
+                                                            view.select_agent_type(
+                                                                value, window, cx,
+                                                            );
+                                                        })
+                                                    }
+                                                }));
+                                            }
+                                            menu
+                                        }
+                                    }),
+                            ),
+                    )
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(div().text_sm().child("Options"))
+                            .child(Input::new(&self.agent_options_input).flex_1()),
+                    ),
+            )
+    }
 }
 
 impl Render for SettingsWindow {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let body = match self.selected_tab {
             SettingsTab::General => self.render_general(cx).into_any_element(),
-            SettingsTab::Coding => Self::render_placeholder("Coding", cx).into_any_element(),
+            SettingsTab::Coding => self.render_coding(cx).into_any_element(),
             SettingsTab::Personas => Self::render_placeholder("Personas", cx).into_any_element(),
             SettingsTab::Autopilot => Self::render_placeholder("Autopilot", cx).into_any_element(),
             SettingsTab::Voice => Self::render_placeholder("Voice", cx).into_any_element(),
@@ -3242,6 +3431,21 @@ mod tests {
     fn appearance_label_defaults_to_auto() {
         assert_eq!(SettingsWindow::appearance_label("auto"), "Auto");
         assert_eq!(SettingsWindow::appearance_label("anything-else"), "Auto");
+    }
+
+    #[test]
+    fn agent_type_label_maps_known_types() {
+        assert_eq!(SettingsWindow::agent_type_label("codex"), "Codex");
+        assert_eq!(SettingsWindow::agent_type_label("opencode"), "OpenCode");
+        assert_eq!(SettingsWindow::agent_type_label("gemini"), "Gemini");
+        assert_eq!(SettingsWindow::agent_type_label("copilot"), "Copilot");
+        assert_eq!(SettingsWindow::agent_type_label("shell"), "Shell");
+    }
+
+    #[test]
+    fn agent_type_label_defaults_to_claude() {
+        assert_eq!(SettingsWindow::agent_type_label("claude"), "Claude");
+        assert_eq!(SettingsWindow::agent_type_label("anything-else"), "Claude");
     }
 
     #[test]
