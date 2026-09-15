@@ -2489,8 +2489,24 @@ impl WorkspaceWindow {
         workspace_id: Uuid,
         cx: &mut Context<WorkspaceManager>,
     ) {
+        let workspace_name = store
+            .lock()
+            .ok()
+            .and_then(|store| {
+                store
+                    .workspaces()
+                    .iter()
+                    .find(|workspace| workspace.id == workspace_id)
+                    .map(|workspace| workspace.name.clone())
+            })
+            .unwrap_or_else(|| "Workspace".to_string());
         let options = workspace_window_options(cx);
         if let Err(error) = cx.open_window(options, move |window, cx| {
+            // The OS window title (Mission Control, Cmd+`, Window menu) is
+            // separate from the TitleBar row we draw ourselves - without
+            // this it falls back to the app's bundle name for every
+            // workspace window.
+            window.set_window_title(&workspace_name);
             let new_agent_name_input =
                 cx.new(|cx| InputState::new(window, cx).placeholder("Agent name (optional)"));
             let new_agent_folder_input =
@@ -3004,6 +3020,9 @@ impl Render for WorkspaceWindow {
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or(folder);
+                // Legacy/imported data may carry more than one character;
+                // clamp to a single grapheme so it can't overflow the tile.
+                let avatar = avatar.graphemes(true).next().unwrap_or("🤖").to_string();
                 Button::new(format!("workspace-agent-{id}"))
                     .child(
                         h_flex()
@@ -3015,6 +3034,7 @@ impl Render for WorkspaceWindow {
                                     .w(px(40.))
                                     .h(px(40.))
                                     .flex_shrink_0()
+                                    .overflow_hidden()
                                     .flex()
                                     .items_center()
                                     .justify_center()
@@ -3029,7 +3049,7 @@ impl Render for WorkspaceWindow {
                                     .child(div().font_semibold().child(name))
                                     .children(persona_name.map(|persona_name| {
                                         div()
-                                            .text_sm()
+                                            .text_xs()
                                             .text_color(cx.theme().muted_foreground)
                                             .child(format!("👤 {persona_name}"))
                                     }))
@@ -3099,7 +3119,10 @@ impl Render for WorkspaceWindow {
                             .h_full()
                             .gap_2()
                             .p_4()
-                            .bg(cx.theme().muted)
+                            // Matches the title bar's own base color (not
+                            // `muted`) so there's no visible seam where the
+                            // borderless title bar meets the sidebar.
+                            .bg(cx.theme().title_bar)
                             .children(agent_rows)
                             .child(div().flex_1())
                             .children(
