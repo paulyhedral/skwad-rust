@@ -111,6 +111,22 @@ mod native_character_picker {
 /// `font_semibold`/`font_bold` text.
 const ADAMINA_REGULAR: &[u8] = include_bytes!("../assets/fonts/Adamina-Regular.ttf");
 
+const APP_ICON_PNG: &[u8] = include_bytes!("../assets/app-icon-32.png");
+
+/// A small app-icon glyph for the leading edge of a custom `TitleBar`, sat
+/// between the traffic lights and the title text.
+fn app_titlebar_icon() -> impl IntoElement {
+    let image = std::sync::Arc::new(gpui_kit::Image::from_bytes(
+        gpui_kit::ImageFormat::Png,
+        APP_ICON_PNG.to_vec(),
+    ));
+    gpui_kit::img(image)
+        .w(px(16.))
+        .h(px(16.))
+        .rounded(px(4.))
+        .flex_shrink_0()
+}
+
 /// Registers the embedded Adamina family and sets it as the UI font, plus a
 /// distinct accent color, so the app doesn't rely on the platform's generic
 /// UI font and neutral-gray default theme.
@@ -3106,7 +3122,13 @@ impl Render for WorkspaceWindow {
             .child(
                 TitleBar::new()
                     .border_color(gpui_kit::transparent_black())
-                    .child(workspace_name.clone()),
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(app_titlebar_icon())
+                            .child(workspace_name.clone()),
+                    ),
             )
             .child(
                 h_flex()
@@ -3131,12 +3153,28 @@ impl Render for WorkspaceWindow {
                                     .map(|error| div().text_sm().child(error.clone())),
                             )
                             .child(
-                                Button::new("workspace-new-agent")
-                                    .icon(IconName::Plus)
-                                    .tooltip("New agent")
-                                    .on_click(cx.listener(|view, _: &ClickEvent, window, cx| {
-                                        view.open_new_agent_dialog(window, cx);
-                                    })),
+                                h_flex()
+                                    .gap_1()
+                                    .child(
+                                        Button::new("workspace-new-agent")
+                                            .icon(IconName::Plus)
+                                            .tooltip("New agent")
+                                            .on_click(cx.listener(
+                                                |view, _: &ClickEvent, window, cx| {
+                                                    view.open_new_agent_dialog(window, cx);
+                                                },
+                                            )),
+                                    )
+                                    .child(
+                                        // Not yet wired - see the `dashboard-view`
+                                        // OpenSpec change for the real dashboard.
+                                        SettingsWindow::icon_button(
+                                            "workspace-dashboard",
+                                            "icons/layout-dashboard.svg",
+                                            "Dashboard",
+                                            false,
+                                        ),
+                                    ),
                             ),
                     )
                     .child(
@@ -3453,7 +3491,13 @@ impl Render for WorkspaceManager {
             .child(
                 TitleBar::new()
                     .border_color(gpui_kit::transparent_black())
-                    .child("Workspaces"),
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(app_titlebar_icon())
+                            .child("Workspaces"),
+                    ),
             )
             .child(
                 v_flex()
