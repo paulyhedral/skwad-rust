@@ -852,6 +852,16 @@ fn open_settings_window(
                 .placeholder("Extra CLI options")
                 .default_value(initial_options)
         });
+        let ai_api_key_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("API key")
+                .default_value(settings.ai_api_key.clone())
+        });
+        let autopilot_custom_prompt_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Custom prompt")
+                .default_value(settings.autopilot_custom_prompt.clone())
+        });
         let view = cx.new(|cx| {
             let agent_options_subscription =
                 cx.subscribe(&agent_options_input, |this: &mut SettingsWindow, _, event, cx| {
@@ -859,12 +869,30 @@ fn open_settings_window(
                         this.save_agent_options(cx);
                     }
                 });
+            let ai_api_key_subscription =
+                cx.subscribe(&ai_api_key_input, |this: &mut SettingsWindow, _, event, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        this.save_ai_api_key(cx);
+                    }
+                });
+            let autopilot_custom_prompt_subscription = cx.subscribe(
+                &autopilot_custom_prompt_input,
+                |this: &mut SettingsWindow, _, event, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        this.save_autopilot_custom_prompt(cx);
+                    }
+                },
+            );
             SettingsWindow {
                 settings,
                 selected_tab: SettingsTab::General,
                 selected_agent_type,
                 agent_options_input,
+                ai_api_key_input,
+                autopilot_custom_prompt_input,
                 _agent_options_subscription: agent_options_subscription,
+                _ai_api_key_subscription: ai_api_key_subscription,
+                _autopilot_custom_prompt_subscription: autopilot_custom_prompt_subscription,
             }
         });
         cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
@@ -914,7 +942,11 @@ struct SettingsWindow {
     selected_tab: SettingsTab,
     selected_agent_type: String,
     agent_options_input: Entity<InputState>,
+    ai_api_key_input: Entity<InputState>,
+    autopilot_custom_prompt_input: Entity<InputState>,
     _agent_options_subscription: Subscription,
+    _ai_api_key_subscription: Subscription,
+    _autopilot_custom_prompt_subscription: Subscription,
 }
 
 impl SettingsWindow {
@@ -1005,6 +1037,71 @@ impl SettingsWindow {
         self.settings
             .agent_options
             .insert(self.selected_agent_type.clone(), value);
+        self.persist();
+    }
+
+    fn ai_provider_label(provider: &str) -> &'static str {
+        match provider {
+            "anthropic" => "Anthropic",
+            "google" => "Google",
+            _ => "OpenAI",
+        }
+    }
+
+    /// Hardcoded model for each AI provider (cheapest/fastest options),
+    /// matching the Swift reference's `AppSettings.aiModel(for:)`.
+    fn ai_model_for(provider: &str) -> &'static str {
+        match provider {
+            "anthropic" => "claude-haiku-4-5",
+            "google" => "gemini-flash-lite-latest",
+            "openai" => "gpt-5-mini",
+            _ => "",
+        }
+    }
+
+    fn autopilot_action_label(action: &str) -> &'static str {
+        match action {
+            "ask" => "Ask me",
+            "continue" => "Auto-continue",
+            "custom" => "Custom",
+            _ => "Mark conversation",
+        }
+    }
+
+    fn autopilot_action_description(action: &str) -> &'static str {
+        match action {
+            "ask" => {
+                "Show a dialog letting you switch to the agent, dismiss, or auto-continue."
+            }
+            "continue" => "Automatically send \"yes, continue\" to the agent.",
+            "custom" => {
+                "Use your own prompt to decide what to reply. The LLM response is injected \
+                 directly into the agent."
+            }
+            _ => "Set the agent status to indicate input is needed and send a notification.",
+        }
+    }
+
+    fn select_ai_provider(&mut self, provider: &str, cx: &mut Context<Self>) {
+        self.settings.ai_provider = provider.to_string();
+        self.persist();
+        cx.notify();
+    }
+
+    fn select_autopilot_action(&mut self, action: &str, cx: &mut Context<Self>) {
+        self.settings.autopilot_action = action.to_string();
+        self.persist();
+        cx.notify();
+    }
+
+    fn save_ai_api_key(&mut self, cx: &mut Context<Self>) {
+        self.settings.ai_api_key = self.ai_api_key_input.read(cx).value().to_string();
+        self.persist();
+    }
+
+    fn save_autopilot_custom_prompt(&mut self, cx: &mut Context<Self>) {
+        self.settings.autopilot_custom_prompt =
+            self.autopilot_custom_prompt_input.read(cx).value().to_string();
         self.persist();
     }
 
@@ -1427,6 +1524,154 @@ impl SettingsWindow {
             )
             .child(list)
     }
+
+    fn render_autopilot(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let settings_window = cx.entity();
+        let autopilot_enabled = self.settings.autopilot_enabled;
+        let ai_provider = self.settings.ai_provider.clone();
+        let autopilot_action = self.settings.autopilot_action.clone();
+        let provider_label = Self::ai_provider_label(&ai_provider);
+        let model_name = Self::ai_model_for(&ai_provider);
+        let action_label = Self::autopilot_action_label(&autopilot_action);
+        let is_custom_action = autopilot_action == "custom";
+
+        v_flex()
+            .gap_4()
+            .child(div().text_xl().child("Autopilot"))
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(Self::section("Autopilot"))
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("Enable autopilot"))
+                            .child(
+                                Switch::new("autopilot-enabled")
+                                    .checked(autopilot_enabled)
+                                    .on_click({
+                                        let settings_window = settings_window.clone();
+                                        move |checked, _, app| {
+                                            let checked = *checked;
+                                            settings_window.update(app, |view, _| {
+                                                view.settings.autopilot_enabled = checked;
+                                                view.persist();
+                                            })
+                                        }
+                                    }),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(
+                                "Automatically detect when agents need input and take action — \
+                                 no need to babysit your agents. Only available with Claude Code.",
+                            ),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(Self::section("AI Provider"))
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("Provider"))
+                            .child(
+                                Button::new("autopilot-provider-picker")
+                                    .label(provider_label)
+                                    .dropdown_menu({
+                                        let settings_window = settings_window.clone();
+                                        move |menu, _, _| {
+                                            let mut menu = menu;
+                                            for (label, value) in [
+                                                ("OpenAI", "openai"),
+                                                ("Anthropic", "anthropic"),
+                                                ("Google", "google"),
+                                            ] {
+                                                menu = menu.item(PopupMenuItem::new(label).on_click({
+                                                    let settings_window = settings_window.clone();
+                                                    move |_, _, app| {
+                                                        settings_window.update(app, |view, cx| {
+                                                            view.select_ai_provider(value, cx);
+                                                        })
+                                                    }
+                                                }));
+                                            }
+                                            menu
+                                        }
+                                    }),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("API Key"))
+                            .child(Input::new(&self.ai_api_key_input).flex_1()),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("Model"))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(model_name),
+                            ),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(Self::section("Action"))
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("When input is detected"))
+                            .child(
+                                Button::new("autopilot-action-picker")
+                                    .label(action_label)
+                                    .dropdown_menu({
+                                        let settings_window = settings_window.clone();
+                                        move |menu, _, _| {
+                                            let mut menu = menu;
+                                            for (label, value) in [
+                                                ("Mark conversation", "mark"),
+                                                ("Ask me", "ask"),
+                                                ("Auto-continue", "continue"),
+                                                ("Custom", "custom"),
+                                            ] {
+                                                menu = menu.item(PopupMenuItem::new(label).on_click({
+                                                    let settings_window = settings_window.clone();
+                                                    move |_, _, app| {
+                                                        settings_window.update(app, |view, cx| {
+                                                            view.select_autopilot_action(value, cx);
+                                                        })
+                                                    }
+                                                }));
+                                            }
+                                            menu
+                                        }
+                                    }),
+                            ),
+                    )
+                    .children(is_custom_action.then(|| {
+                        v_flex()
+                            .gap_1()
+                            .child(div().text_sm().child("Custom prompt"))
+                            .child(Input::new(&self.autopilot_custom_prompt_input).flex_1())
+                    }))
+                    .children((!is_custom_action).then(|| {
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(Self::autopilot_action_description(&autopilot_action))
+                    })),
+            )
+    }
 }
 
 fn persona_editor_window_options(cx: &App) -> WindowOptions {
@@ -1562,7 +1807,7 @@ impl Render for SettingsWindow {
             SettingsTab::General => self.render_general(cx).into_any_element(),
             SettingsTab::Coding => self.render_coding(cx).into_any_element(),
             SettingsTab::Personas => self.render_personas(cx).into_any_element(),
-            SettingsTab::Autopilot => Self::render_placeholder("Autopilot", cx).into_any_element(),
+            SettingsTab::Autopilot => self.render_autopilot(cx).into_any_element(),
             SettingsTab::Voice => Self::render_placeholder("Voice", cx).into_any_element(),
             SettingsTab::Mcp => Self::render_placeholder("MCP", cx).into_any_element(),
             SettingsTab::Terminal => Self::render_placeholder("Terminal", cx).into_any_element(),
@@ -3727,6 +3972,57 @@ mod tests {
         assert_eq!(preview.chars().count(), 81);
         assert!(preview.ends_with('…'));
         assert_eq!(&preview[..80], "a".repeat(80).as_str());
+    }
+
+    #[test]
+    fn ai_provider_label_maps_known_providers() {
+        assert_eq!(SettingsWindow::ai_provider_label("openai"), "OpenAI");
+        assert_eq!(SettingsWindow::ai_provider_label("anthropic"), "Anthropic");
+        assert_eq!(SettingsWindow::ai_provider_label("google"), "Google");
+    }
+
+    #[test]
+    fn ai_provider_label_defaults_to_openai() {
+        assert_eq!(SettingsWindow::ai_provider_label("anything-else"), "OpenAI");
+    }
+
+    #[test]
+    fn ai_model_for_matches_swift_reference_defaults() {
+        assert_eq!(SettingsWindow::ai_model_for("openai"), "gpt-5-mini");
+        assert_eq!(SettingsWindow::ai_model_for("anthropic"), "claude-haiku-4-5");
+        assert_eq!(
+            SettingsWindow::ai_model_for("google"),
+            "gemini-flash-lite-latest"
+        );
+        assert_eq!(SettingsWindow::ai_model_for("anything-else"), "");
+    }
+
+    #[test]
+    fn autopilot_action_label_maps_known_actions() {
+        assert_eq!(SettingsWindow::autopilot_action_label("mark"), "Mark conversation");
+        assert_eq!(SettingsWindow::autopilot_action_label("ask"), "Ask me");
+        assert_eq!(
+            SettingsWindow::autopilot_action_label("continue"),
+            "Auto-continue"
+        );
+        assert_eq!(SettingsWindow::autopilot_action_label("custom"), "Custom");
+    }
+
+    #[test]
+    fn autopilot_action_label_defaults_to_mark() {
+        assert_eq!(
+            SettingsWindow::autopilot_action_label("anything-else"),
+            "Mark conversation"
+        );
+    }
+
+    #[test]
+    fn autopilot_action_description_is_distinct_per_action() {
+        let descriptions: BTreeSet<&str> = ["mark", "ask", "continue", "custom"]
+            .iter()
+            .map(|action| SettingsWindow::autopilot_action_description(action))
+            .collect();
+        assert_eq!(descriptions.len(), 4);
     }
 
     #[test]

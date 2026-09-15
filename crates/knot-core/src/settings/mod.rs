@@ -26,9 +26,10 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::consts::{
-    APP_NAME, APPEARANCE_MODE_DEFAULT, DEFAULT_PERSONAS, MARKDOWN_FONT_SIZE_DEFAULT,
-    MCP_PORT_DEFAULT, MERMAID_THEME_DEFAULT, ORG_NAME, ORG_QUALIFIER, RECENT_REPOS_MAX,
-    SETTINGS_FILE, SOURCE_FOLDER_CANDIDATES, TERMINAL_FONT_DEFAULT, TERMINAL_FONT_SIZE_DEFAULT,
+    AI_PROVIDER_DEFAULT, APP_NAME, APPEARANCE_MODE_DEFAULT, AUTOPILOT_ACTION_DEFAULT,
+    DEFAULT_PERSONAS, MARKDOWN_FONT_SIZE_DEFAULT, MCP_PORT_DEFAULT, MERMAID_THEME_DEFAULT,
+    ORG_NAME, ORG_QUALIFIER, RECENT_REPOS_MAX, SETTINGS_FILE, SOURCE_FOLDER_CANDIDATES,
+    TERMINAL_FONT_DEFAULT, TERMINAL_FONT_SIZE_DEFAULT,
 };
 use crate::error::{Error, Result};
 
@@ -55,6 +56,11 @@ pub struct Settings {
     pub agent_options: BTreeMap<String, String>,
     pub terminal_font_name: String,
     pub terminal_font_size: f64,
+    pub autopilot_enabled: bool,
+    pub ai_provider: String,
+    pub ai_api_key: String,
+    pub autopilot_action: String,
+    pub autopilot_custom_prompt: String,
 
     #[serde(deserialize_with = "de_tolerant_vec")]
     pub saved_agents: Vec<SavedAgent>,
@@ -90,6 +96,11 @@ impl Default for Settings {
             agent_options: BTreeMap::new(),
             terminal_font_name: TERMINAL_FONT_DEFAULT.to_string(),
             terminal_font_size: TERMINAL_FONT_SIZE_DEFAULT,
+            autopilot_enabled: false,
+            ai_provider: AI_PROVIDER_DEFAULT.to_string(),
+            ai_api_key: String::new(),
+            autopilot_action: AUTOPILOT_ACTION_DEFAULT.to_string(),
+            autopilot_custom_prompt: String::new(),
             saved_agents: Vec::new(),
             saved_workspaces: Vec::new(),
             personas: Vec::new(),
