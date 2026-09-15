@@ -64,19 +64,26 @@ the app's active workspace.
   in the active workspace
 - **THEN** no desktop notification is raised
 
-### Requirement: Clicking a notification navigates to its agent
+### Requirement: Clicking a notification raises the app
 
-The system SHALL respond to a notification click by selecting the
-notification's agent and bringing the application window to the front. A
-click for an agent id that no longer exists SHALL be a no-op.
+The system SHALL respond to a notification click carrying a valid agent id
+by bringing the application to the front. A click whose tag does not parse
+as an agent id SHALL be a no-op.
 
-#### Scenario: Click selects the agent and raises the window
+Selecting the specific clicked agent (in whichever workspace window owns it)
+is not yet implemented: no registry exists mapping an agent id to its owning
+window across the port's per-workspace `Shell` windows. That refinement is
+tracked as a follow-up and is not required by this version of the
+requirement.
 
-- **WHEN** the user clicks a delivered notification for agent `X`
-- **THEN** agent `X` becomes the selected agent and the app window is raised
+#### Scenario: Click with a valid agent id raises the app
 
-#### Scenario: Click for a removed agent is a no-op
+- **WHEN** the user clicks a delivered notification whose tag is agent `X`'s
+  id
+- **THEN** the application is brought to the front
 
-- **WHEN** the user clicks a notification whose agent id no longer exists in
-  the agent store
+#### Scenario: Click with an unparseable tag is a no-op
+
+- **WHEN** the user clicks a notification whose tag does not parse as a
+  valid agent id
 - **THEN** nothing changes and no error is raised

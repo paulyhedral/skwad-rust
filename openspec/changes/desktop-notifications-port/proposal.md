@@ -20,8 +20,10 @@ counterpart yet; there is no tracking GitHub issue prior to this proposal.
   is off, the agent is already Awaiting input (dedup against repeat hook
   events for the same prompt), or the agent is the one currently visible/
   selected in the app.
-- Clicking the notification SHALL select that agent (equivalent to Swift's
-  `switchToAgent`) and bring the app window forward.
+- Clicking the notification brings the app window forward. Full parity with
+  Swift's `switchToAgent` (selecting that specific agent, in whichever
+  window owns it) is deferred — see design.md and tasks.md: the port has no
+  agent-id -> window registry yet to route the selection to.
 - Gated by the existing `desktop_notifications_enabled` scalar setting
   (already ported, currently unread by any Rust code path).
 
