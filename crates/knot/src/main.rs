@@ -2098,7 +2098,7 @@ async fn poll_outputs(weak: WeakEntity<Shell>, cx: &mut AsyncApp) {
                 ) {
                     app.show_system_notification(SystemNotification {
                         tag: id.to_string().into(),
-                        title: format!("Skwad - {agent_name}").into(),
+                        title: format!("Knot - {agent_name}").into(),
                         body: notification_body(&message).into(),
                         actions: Vec::new(),
                     });

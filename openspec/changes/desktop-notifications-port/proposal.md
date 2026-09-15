@@ -5,7 +5,7 @@ system "SHALL raise a desktop notification" when an agent needs attention,
 but nothing in the Rust port does that yet: `main.rs` only tracks an
 in-window `AwaitingNotice` (a toast rendered inside the app's own view,
 suppressed only by comparing it to the currently selected agent). There is no
-macOS `UNUserNotificationCenter` notification, so a user with Skwad
+macOS `UNUserNotificationCenter` notification, so a user with Knot
 backgrounded or hidden to the menu bar — exactly the case the Swift
 reference's `NotificationService` exists for — gets no signal at all. This
 gap was found while auditing which Swift `Services/` files have no Rust
@@ -44,19 +44,19 @@ text)
 
 ## Impact
 
-- `skwad` binary only — no new crate. `gpui` (already linked via `gpui-kit`)
+- `knot` binary only — no new crate. `gpui` (already linked via `gpui-kit`)
   turns out to already wrap `UNUserNotificationCenter` behind a
   platform-neutral `App::show_system_notification` /
   `on_system_notification_response` / `dismiss_system_notification` API, so
   this change is a few functions plus wiring inside `main.rs`, not a new
   binding layer (see design.md - Decisions).
-- `skwad` binary: wire the existing `awaiting_input` queue (already produced
-  by `skwad-activity`'s `Effect::AwaitingInput`) to also raise an OS
+- `knot` binary: wire the existing `awaiting_input` queue (already produced
+  by `knot-activity`'s `Effect::AwaitingInput`) to also raise an OS
   notification via `cx.show_system_notification(...)`, alongside the
   existing in-window `AwaitingNotice` toast (kept as-is), and register a
   response callback once at startup to select the clicked notification's
   agent.
-- `skwad_core::Settings.desktop_notifications_enabled`: gains its first
+- `knot_core::Settings.desktop_notifications_enabled`: gains its first
   reader.
-- No changes to `skwad-activity`, `skwad-agents`, or hook ingestion —
+- No changes to `knot-activity`, `knot-agents`, or hook ingestion —
   the state machine and its `AwaitingInput` effect are unchanged.

@@ -1,6 +1,6 @@
 ## Context
 
-`skwad-activity`'s state machine already emits `Effect::AwaitingInput(message)`
+`knot-activity`'s state machine already emits `Effect::AwaitingInput(message)`
 on the correct transition (`openspec/specs/activity-detection/spec.md`); `main.rs`
 already wires that effect to an `awaiting_input` queue and drains it once per
 frame into an in-window `AwaitingNotice` toast, deduped by comparing to
@@ -46,11 +46,11 @@ that proposed binding `UNUserNotificationCenter` directly via `objc2`.
 ## Decisions
 
 - **Use `gpui::App::show_system_notification` / `on_system_notification_response`
-  / `dismiss_system_notification` directly, not a new `skwad-notifications`
+  / `dismiss_system_notification` directly, not a new `knot-notifications`
   crate or a direct `objc2` binding.** `gpui-pre-macos`'s
   `system_notifications` module is already a complete, lazily-initialized
   `UNUserNotificationCenter` wrapper (delegate, authorization, category/action
-  registration) linked into every `skwad` build via `gpui-kit`. Reimplementing
+  registration) linked into every `knot` build via `gpui-kit`. Reimplementing
   any part of that — a custom `objc2` delegate class, a second authorization
   request, a second permission-prompt UX — would be dead weight duplicating
   code already in the dependency tree, and would risk two competing
@@ -97,5 +97,5 @@ that proposed binding `UNUserNotificationCenter` directly via `objc2`.
   is process-global (one callback slot on `App`), so a later, unrelated
   system-notification feature would need to compose with this one rather
   than register its own] → Mitigation: not a concern for this change (the
-  only system notification `skwad` raises is this one), noted here so a
+  only system notification `knot` raises is this one), noted here so a
   future addition doesn't silently clobber this callback.

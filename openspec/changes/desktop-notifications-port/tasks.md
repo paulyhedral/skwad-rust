@@ -23,7 +23,7 @@
       `should_show_awaiting_notice`'s result once and pass it to
       `should_notify` with `settings.desktop_notifications_enabled`; when
       true, call `app.show_system_notification(SystemNotification { tag:
-      id.to_string().into(), title: format!("Skwad - {name}").into(), body:
+      id.to_string().into(), title: format!("Knot - {name}").into(), body:
       notification_body(&message).into(), actions: Vec::new() })`. Verified
       with unit tests on `should_notify`/`notification_body` directly.
 - [x] 2.2 At startup, register `cx.on_system_notification_response(...)`
@@ -35,7 +35,7 @@
       tracks which open window owns which agent across windows — that
       registry doesn't exist yet, and building it is real new
       infrastructure beyond what this change's scope justifies. A click
-      raises Skwad to the front (parity with the existing `ShowAllWindows`
+      raises Knot to the front (parity with the existing `ShowAllWindows`
       action) but does not switch any window's selected agent. Follow-up:
       add an agent-id -> window registry, then extend the response handler
       to select the correct agent in its window. Verified with unit tests on
