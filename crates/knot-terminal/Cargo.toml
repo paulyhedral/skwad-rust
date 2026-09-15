@@ -1,0 +1,21 @@
+[package]
+name = "knot-terminal"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tokio.workspace = true
+portable-pty = "0.9.0"
+uuid.workspace = true
+knot-activity = { path = "../knot-activity" }
+knot-agent-launch = { path = "../knot-agent-launch" }
+knot-agents = { path = "../knot-agents" }
+knot-core = { path = "../knot-core" }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

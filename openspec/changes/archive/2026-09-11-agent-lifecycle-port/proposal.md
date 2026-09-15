@@ -1,19 +1,19 @@
 ## Why
 
-`skwad-core`'s settings store already persists `SavedAgent`, `Workspace`, and
+`knot-core`'s settings store already persists `SavedAgent`, `Workspace`, and
 `BenchAgent` (from `settings-persistence-port`), and `Settings` has a full
 persona API (from `personas-port`). Nothing yet turns those durable records
 into the runtime `Agent` the app actually operates on: no create/remove,
 restart/resume, edit-with-conditional-restart, companion cascade, ordering, or
 bench deployment. `agent-lifecycle` is next in the "standalone crate first"
-order because, like `skwad-history`, it has a complete spec and needs no
+order because, like `knot-history`, it has a complete spec and needs no
 terminal engine or MCP server - those are separate specs (`agent-hooks`,
 `mcp-server`) that will depend on this crate's `Agent` type instead of the
 other way around.
 
 ## What Changes
 
-- Add a new crate `crates/skwad-agents` implementing
+- Add a new crate `crates/knot-agents` implementing
   `openspec/specs/agent-lifecycle/spec.md`:
   - `Agent` - the runtime struct: the eight durable fields mirrored from
     `SavedAgent` (id, name, avatar, folder, agent_type, created_by,
@@ -21,12 +21,12 @@ other way around.
     spec names (state, status_text, is_registered, is_pending_start,
     terminal_title, restart_token, session_id, resume_session_id,
     fork_session, metadata). Runtime fields always start at their documented
-    defaults; `skwad-agents` never reads them from a `SavedAgent`.
+    defaults; `knot-agents` never reads them from a `SavedAgent`.
   - `AgentState` enum (`Idle`, `Running`, `Input`, `Error`), `String`-keyed
     like the Swift reference (`"Idle"`, `"Working"`, `"Awaiting input"`,
     `"Error"`) so any persisted/wire representation matches.
   - `AgentStore` - owns `Vec<Agent>` plus the workspace list (reuses
-    `skwad_core::Workspace` for placement/ordering fields only; layout-mode
+    `knot_core::Workspace` for placement/ordering fields only; layout-mode
     interpretation stays out of scope) and implements the spec's operations:
     - `create` (folder + optional overrides, insert-after, workspace
       inheritance per the "Ordering and workspace placement" requirement)
@@ -38,10 +38,10 @@ other way around.
     - `deploy_bench` (existence check, prune-on-failure)
     - `reorder` within a workspace, `move_to_workspace`
   - `to_saved` / `from_saved` conversions between `Agent` and
-    `skwad_core::SavedAgent`, used by the crate's own load/save helpers over
-    `skwad_core::Settings` (`saved_agents`, `saved_workspaces`).
-  - Constants (default agent type, default state) reuse `skwad_core::consts`
-    where already defined; anything new lives in `crates/skwad-agents/src/consts.rs`.
+    `knot_core::SavedAgent`, used by the crate's own load/save helpers over
+    `knot_core::Settings` (`saved_agents`, `saved_workspaces`).
+  - Constants (default agent type, default state) reuse `knot_core::consts`
+    where already defined; anything new lives in `crates/knot-agents/src/consts.rs`.
   - `AgentError` (`thiserror`) with a crate `Result` alias.
   - Unit tests covering every scenario in the spec: create-with-defaults,
     insert-after-sibling, reload-drops-runtime-state, legacy-record-without-companion-fields,
@@ -50,9 +50,9 @@ other way around.
     resume-targets-prior-session, rename-does-not-restart,
     folder-change-restarts-and-relocates-companions, new-agent-inherits-source-workspace,
     stale-bench-entry-is-pruned.
-- Add `crates/skwad-agents` to the workspace `Cargo.toml` members. No new
+- Add `crates/knot-agents` to the workspace `Cargo.toml` members. No new
   external dependencies: `uuid`, `serde`, `thiserror` are already workspace
-  deps; `skwad-agents` depends on `skwad-core` for `Settings`/`SavedAgent`/
+  deps; `knot-agents` depends on `knot-core` for `Settings`/`SavedAgent`/
   `Workspace`/`BenchAgent`/`Persona`.
 
 Non-goals:
@@ -67,10 +67,10 @@ Non-goals:
   MCP; `mcp-server`/`mcp-tools` are separate specs.
 - Split-pane / layout-mode selection logic (`enterSplit`, `applyCompanionLayout`,
   `selectAgent`, dashboard/detach state) - `Workspace`'s layout fields are
-  carried opaquely, exactly as `skwad_core::Workspace` already treats them.
+  carried opaquely, exactly as `knot_core::Workspace` already treats them.
 - Git stats, markdown panel, mermaid panel, shell-start staggering, message
   notification dedup - none are in `agent-lifecycle`'s spec.
-- Any GUI - a later change wires `skwad-agents` into the app shell.
+- Any GUI - a later change wires `knot-agents` into the app shell.
 
 ## Capabilities
 
@@ -86,11 +86,11 @@ this change adds the implementation. `skip_specs: true`.
 
 ## Impact
 
-- New crate: `crates/skwad-agents/` (`Cargo.toml`, `src/lib.rs`, `consts.rs`,
+- New crate: `crates/knot-agents/` (`Cargo.toml`, `src/lib.rs`, `consts.rs`,
   `error.rs`, `agent.rs`, `store.rs`, `convert.rs`, `tests/`).
-- Modified: root `Cargo.toml` (workspace members gains `skwad-agents`),
+- Modified: root `Cargo.toml` (workspace members gains `knot-agents`),
   `Cargo.lock`.
 - No new external dependencies.
-- `skwad-core`, `skwad-git`, `skwad-discovery`, `skwad-history`, `skwad`, and
-  the Swift build are unaffected. `skwad-agents` depends only on `skwad-core`
+- `knot-core`, `knot-git`, `knot-discovery`, `knot-history`, `knot`, and
+  the Swift build are unaffected. `knot-agents` depends only on `knot-core`
   and `thiserror` (both via workspace where applicable).

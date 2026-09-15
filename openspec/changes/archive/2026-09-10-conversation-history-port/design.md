@@ -15,7 +15,7 @@ reads a different on-disk format:
 - copilot: `~/.copilot/session-state/<id>/workspace.yaml` (flat `key: value`),
   `events.jsonl` for the title fallback.
 
-Constraints from repo conventions: no async runtime inside the crate (`skwad-git`
+Constraints from repo conventions: no async runtime inside the crate (`knot-git`
 rule), `Result` + `thiserror`, no panics in library code, constants in one
 module, functions <= 5-6 args, `cargo +nightly fmt`.
 
@@ -23,7 +23,7 @@ module, functions <= 5-6 args, `cargo +nightly fmt`.
 
 **Goals:**
 
-- One crate, `skwad-history`, that returns `SessionSummary` lists per agent
+- One crate, `knot-history`, that returns `SessionSummary` lists per agent
   type with the spec's caching semantics.
 - Blocking, runtime-agnostic API; caller owns threading.
 - Fixture-driven tests that pin each on-disk format so a format drift fails
@@ -40,15 +40,15 @@ module, functions <= 5-6 args, `cargo +nightly fmt`.
 
 ### Crate layout
 
-`skwad-history` as a sibling of `skwad-git`. Modules: `consts`, `error`,
+`knot-history` as a sibling of `knot-git`. Modules: `consts`, `error`,
 `title`, `cache`, `provider` (the trait + registry), and
 `providers/{claude,codex,gemini,copilot}`. `lib.rs` re-exports
 `SessionSummary`, `HistoryCache`, `HistoryError`, `Result`, and
 `supports_history`.
 
-Alternative: fold into `skwad-core`. Rejected - `skwad-core` has no
+Alternative: fold into `knot-core`. Rejected - `knot-core` has no
 `rusqlite`/`time` deps and is depended on by the binary; keeping the SQLite
-link out of the core crate matches how `skwad-git` stays separate.
+link out of the core crate matches how `knot-git` stays separate.
 
 ### Registry as a match, not a map
 
@@ -112,7 +112,7 @@ pub struct HistoryCache {
 
 `get`, `refresh`, `invalidate`, `delete_session` take `&self`. `refresh` and
 `delete_session` do disk I/O on the calling thread - the spec's "off the main
-thread" is the caller's `spawn_blocking`, same contract as `skwad-git`. No
+thread" is the caller's `spawn_blocking`, same contract as `knot-git`. No
 `is_loading` flag; that was SwiftUI view state, out of scope here.
 
 `SessionSummary` derives `Clone`; `get` returns a clone of the vec so the lock
@@ -154,6 +154,6 @@ then fails `isValidTitle`).
 ## Migration Plan
 
 New crate, no existing behavior touched. Land behind the OpenSpec change,
-merge with a merge commit (`feat(skwad-history): ...`). Rollback is deleting
+merge with a merge commit (`feat(knot-history): ...`). Rollback is deleting
 the crate directory and its two workspace-dep lines. Nothing consumes it until
 a later change wires the app.

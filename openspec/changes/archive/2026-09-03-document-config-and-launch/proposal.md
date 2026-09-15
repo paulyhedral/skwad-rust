@@ -1,6 +1,6 @@
 ## Why
 
-Skwad keeps all its configuration and durable objects (agents, workspaces,
+Knot keeps all its configuration and durable objects (agents, workspaces,
 personas, bench templates, recent repos) in one settings store, and builds each
 agent's terminal launch command from that config plus per-agent-type rules. The
 Rust port needs the persisted shape and the launch-command construction stated,
@@ -18,7 +18,7 @@ independent of `@AppStorage`.
 - Add `agent-launch-command` spec: how the shell command that starts an agent
   is assembled — resume/fork arguments, user options, MCP config and plugin/
   notify hook injection per agent type, inline registration arguments, the
-  `cd && clear && SKWAD_AGENT_ID=... <cmd>` wrapper, leading-space history
+  `cd && clear && KNOT_AGENT_ID=... <cmd>` wrapper, leading-space history
   suppression, shell agents.
 - No implementation code.
 

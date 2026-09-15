@@ -1,6 +1,6 @@
 ## Why
 
-`skwad-rust` is a from-scratch Rust rewrite of the Swift Skwad app. The Rust
+`knot-rust` is a from-scratch Rust rewrite of the Swift Knot app. The Rust
 port needs a behavior contract to build against. The Swift codebase encodes that
 behavior implicitly across ~25k LOC; nothing states it as requirements.
 

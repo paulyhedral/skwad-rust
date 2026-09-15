@@ -1,23 +1,23 @@
 ## 1. Crate scaffold
 
-- [x] 1.1 Create `crates/skwad-mcp/` with `Cargo.toml` (workspace edition;
-      `skwad-agents` path dep; `thiserror`, `serde`, `serde_json`, `uuid`,
+- [x] 1.1 Create `crates/knot-mcp/` with `Cargo.toml` (workspace edition;
+      `knot-agents` path dep; `thiserror`, `serde`, `serde_json`, `uuid`,
       `tokio` via workspace; new workspace deps `axum` `0.8`,
       `tokio-stream` `0.1`, `async-trait` `0.1`) and empty `src/lib.rs`;
-      verify `cargo build -p skwad-mcp` succeeds and `cargo metadata` lists
+      verify `cargo build -p knot-mcp` succeeds and `cargo metadata` lists
       the crate (workspace members is a `crates/*` glob, no root edit
       needed).
 - [x] 1.2 Add `src/consts.rs` (`DEFAULT_PORT: u16 = 8766`,
       `DEFAULT_SESSION_TIMEOUT: Duration` = 1 hour, `PROTOCOL_VERSION`,
       `SERVER_NAME`, `SERVER_VERSION`) and `src/error.rs` with `McpError`
       (`thiserror`) and `pub type Result<T, E = McpError>`; re-export from
-      `lib.rs`; verify `cargo build -p skwad-mcp`.
+      `lib.rs`; verify `cargo build -p knot-mcp`.
 
 ## 2. Session tracking
 
 - [x] 2.1 Implement `McpSession { id: String, agent_id: Uuid, created_at:
       Instant, last_activity: Instant }` in `src/session.rs`; verify
-      `cargo build -p skwad-mcp`.
+      `cargo build -p knot-mcp`.
 - [x] 2.2 Implement `McpSessionManager` (`Arc<Mutex<SessionTable>>` wrapping
       `sessions: HashMap<String, McpSession>` and `agent_to_session:
       HashMap<Uuid, String>`) with `create_session(agent_id) -> McpSession`,
@@ -36,7 +36,7 @@
       `agent_type`, `session_id: Option<String>`, `metadata:
       BTreeMap<String,String>` skipped when empty via
       `#[serde(skip_serializing_if)]`) and `pub fn agent_status(agents:
-      &[skwad_agents::Agent]) -> Vec<AgentStatusEntry>`; verify a unit test
+      &[knot_agents::Agent]) -> Vec<AgentStatusEntry>`; verify a unit test
       mapping a registered agent (with session id) and an unregistered one,
       asserting two entries and that only the registered entry serializes a
       `session_id` key (spec: "Status reflects live agents").
@@ -73,10 +73,10 @@
 ## 5. HTTP server
 
 - [x] 5.1 Implement `src/server.rs`: `McpServer::new(port: u16, catalog:
-      Arc<dyn ToolCatalog>, agents: Arc<dyn Fn() -> Vec<skwad_agents::Agent>
+      Arc<dyn ToolCatalog>, agents: Arc<dyn Fn() -> Vec<knot_agents::Agent>
       + Send + Sync>) -> Self` and axum router assembly for `GET /health`,
       `GET /`, `POST /mcp`, `GET /mcp`, `GET /api/v1/agent/status`; verify
-      `cargo build -p skwad-mcp`.
+      `cargo build -p knot-mcp`.
 - [x] 5.2 Implement `GET /health` (200, body indicating up) and `GET /`
       (200, JSON server info: name/version) handlers; verify an
       integration test hitting both on a bound ephemeral port.
@@ -113,7 +113,7 @@
       `ToolCallResult`, `AgentStatusEntry`, `agent_status`, `JsonRpcRequest`,
       `JsonRpcResponse`, `McpError`, `Result`) from `lib.rs` with module docs
       linking `openspec/specs/mcp-server/spec.md`; verify `cargo doc -p
-      skwad-mcp` builds with no warnings.
+      knot-mcp` builds with no warnings.
 - [x] 6.2 Run `make rust` (nightly fmt check + clippy `-D warnings` + test +
       build) for the whole workspace and confirm it passes.
 - [x] 6.3 Run `openspec validate mcp-server-port` and confirm the change

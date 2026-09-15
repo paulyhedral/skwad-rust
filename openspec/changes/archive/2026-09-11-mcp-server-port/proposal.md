@@ -1,6 +1,6 @@
 ## Why
 
-`skwad-agents` (from `agent-lifecycle-port`) now owns the runtime `Agent`
+`knot-agents` (from `agent-lifecycle-port`) now owns the runtime `Agent`
 type, but nothing yet exposes it to the outside world. `mcp-server` is next
 because `mcp-tools`, `mcp-messaging`, and `agent-hooks` all depend on the
 HTTP/JSON-RPC scaffold this spec defines - the local MCP server, its session
@@ -9,7 +9,7 @@ around.
 
 ## What Changes
 
-- Add a new crate `crates/skwad-mcp` implementing
+- Add a new crate `crates/knot-mcp` implementing
   `openspec/specs/mcp-server/spec.md`:
   - An axum HTTP server bound to `127.0.0.1:<port>` (default `8766`),
     started/stopped explicitly by the caller; not opened at all when the
@@ -27,7 +27,7 @@ around.
   - `GET /api/v1/agent/status`: JSON array of agent status entries (id,
     name, folder, state, status text, registered flag, agent type, session
     id when present, metadata when non-empty), sourced from a caller-supplied
-    snapshot of `skwad_agents::Agent`s, sorted keys.
+    snapshot of `knot_agents::Agent`s, sorted keys.
   - MCP session tracking (`McpSessionManager`): one session per agent,
     replace-on-recreate, idle-timeout reclamation (default 1 hour).
   - A `ToolCatalog` trait the server dispatches `tools/list`/`tools/call`
@@ -38,7 +38,7 @@ around.
   - Tests covering every scenario in the spec: default bind, health check,
     initialize handshake, unknown method, tool-result shape (success and
     unknown-tool), status reflects live agents, one-session-per-agent.
-- Add `crates/skwad-mcp` to the workspace `Cargo.toml` members and adds
+- Add `crates/knot-mcp` to the workspace `Cargo.toml` members and adds
   `axum` and `tokio-stream` to `[workspace.dependencies]` (both new).
 
 Non-goals:
@@ -67,13 +67,13 @@ change adds the implementation. `skip_specs: true`.
 
 ## Impact
 
-- New crate: `crates/skwad-mcp/` (`Cargo.toml`, `src/lib.rs`, `consts.rs`,
+- New crate: `crates/knot-mcp/` (`Cargo.toml`, `src/lib.rs`, `consts.rs`,
   `error.rs`, `session.rs`, `status.rs`, `rpc.rs`, `tools.rs`, `server.rs`,
   `tests/`).
-- Modified: root `Cargo.toml` (workspace members gains `skwad-mcp`; adds
+- Modified: root `Cargo.toml` (workspace members gains `knot-mcp`; adds
   `axum`, `tokio-stream` to `[workspace.dependencies]`), `Cargo.lock`.
-- `skwad-core`, `skwad-git`, `skwad-discovery`, `skwad-history`,
-  `skwad-agents`, `skwad`, and the Swift build are unaffected. `skwad-mcp`
-  depends on `skwad-agents` (for the `Agent` snapshot type used by the status
+- `knot-core`, `knot-git`, `knot-discovery`, `knot-history`,
+  `knot-agents`, `knot`, and the Swift build are unaffected. `knot-mcp`
+  depends on `knot-agents` (for the `Agent` snapshot type used by the status
   endpoint) plus `axum`, `tokio`, `tokio-stream`, `serde`, `serde_json`,
   `uuid`, `thiserror` (all via workspace where applicable).

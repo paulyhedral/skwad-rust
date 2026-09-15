@@ -17,16 +17,16 @@ yet, so this change adds one.
 
 Constraints from repo conventions: `Result` + `thiserror`, no panics in
 library code, constants in one module, functions <= 5-6 args, `cargo
-+nightly fmt`. Unlike `skwad-git`/`skwad-history`/`skwad-agents`, an HTTP
-server is inherently async, so `skwad-mcp` is the first crate to take a
-`tokio` runtime dependency beyond what `skwad-discovery` already uses for its
++nightly fmt`. Unlike `knot-git`/`knot-history`/`knot-agents`, an HTTP
+server is inherently async, so `knot-mcp` is the first crate to take a
+`tokio` runtime dependency beyond what `knot-discovery` already uses for its
 watcher.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- One crate, `skwad-mcp`, exposing a `McpServer` that implements every
+- One crate, `knot-mcp`, exposing a `McpServer` that implements every
   requirement in the spec: bind/lifecycle, health/info, JSON-RPC dispatch,
   SSE framing, the status endpoint, and session tracking.
 - A `ToolCatalog` trait so `tools/list`/`tools/call` dispatch through an
@@ -35,8 +35,8 @@ watcher.
   crate again.
 - The status endpoint takes an `AgentSnapshot` (caller-supplied `&[Agent]`
   read, e.g. via a `Fn() -> Vec<Agent>` or a shared `Arc<Mutex<...>>` the
-  caller owns) rather than depending on `skwad_agents::AgentStore` directly -
-  keeps `skwad-mcp` decoupled from how the caller stores agents.
+  caller owns) rather than depending on `knot_agents::AgentStore` directly -
+  keeps `knot-mcp` decoupled from how the caller stores agents.
 - Integration-style tests that start the real axum server on an ephemeral
   port and hit it with an HTTP client, since the spec's scenarios are
   wire-level (status codes, JSON-RPC envelopes, SSE framing).
@@ -55,7 +55,7 @@ watcher.
 
 ### Crate layout
 
-`skwad-mcp` as a sibling of `skwad-agents`, depending on `skwad-agents` (for
+`knot-mcp` as a sibling of `knot-agents`, depending on `knot-agents` (for
 the `Agent` type the status endpoint serializes) plus `axum`, `tokio`,
 `tokio-stream`, `serde`, `serde_json`, `uuid`, `thiserror`. Modules:
 `consts`, `error`, `session` (`McpSession`, `McpSessionManager`), `status`
@@ -65,7 +65,7 @@ dispatch), `tools` (the `ToolCatalog` trait + `ToolDefinition`/
 `ToolCallResult`), `server` (`McpServer`, router assembly, `start`/`stop`).
 `lib.rs` re-exports the public surface.
 
-Alternative: fold `mcp-server` into `skwad-agents`. Rejected - an HTTP
+Alternative: fold `mcp-server` into `knot-agents`. Rejected - an HTTP
 server is a distinct runtime concern from the in-memory `AgentStore`, and
 `mcp-tools`/`mcp-messaging`/`agent-hooks` all need the server crate without
 needing to depend on agent lifecycle internals.
@@ -128,9 +128,9 @@ sub-microsecond map mutation, not an awaited operation.
 `status::agent_status(agents: &[Agent]) -> Vec<AgentStatusEntry>` is a pure
 function; the axum handler wraps it via a closure or small state struct the
 caller provides at router-build time (e.g. `Arc<dyn Fn() -> Vec<Agent> + Send
-+ Sync>`). Keeps `skwad-mcp` from depending on `skwad_agents::AgentStore`'s
++ Sync>`). Keeps `knot-mcp` from depending on `knot_agents::AgentStore`'s
 concurrency story (the eventual app shell may wrap it in its own
-`Arc<Mutex<...>>` or an actor) - `skwad-mcp` only needs read access to a
+`Arc<Mutex<...>>` or an actor) - `knot-mcp` only needs read access to a
 `Vec<Agent>` snapshot at request time.
 
 ### Server lifecycle: explicit `start`/`stop`, "disabled" = "never started"
@@ -160,5 +160,5 @@ the Swift reference's `serverTask?.cancel()`.
 
 ## Migration Plan
 
-New crate, additive workspace member - no migration. `skwad-agents` and
+New crate, additive workspace member - no migration. `knot-agents` and
 earlier crates are unaffected.

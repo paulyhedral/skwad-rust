@@ -1,7 +1,7 @@
 # git-operations Specification
 
 ## Purpose
-Defines how Skwad invokes git and turns its output into structured data:
+Defines how Knot invokes git and turns its output into structured data:
 the command runner (working directory, timeout, error model), status parsing
 from porcelain v2, unified-diff parsing into files/hunks/lines, numstat line
 counts, the staging and commit operations, and branch / ahead-behind queries.

@@ -1,7 +1,7 @@
 # agent-hooks Specification
 
 ## Purpose
-Defines how Skwad ingests plugin hook events from Claude and Codex agents:
+Defines how Knot ingests plugin hook events from Claude and Codex agents:
 the HTTP routes, request shape, agent-type dispatch, registration handling,
 activity-status mapping, session-id capture, working-directory and model
 metadata extraction, transcript last-message extraction, and the conditions
@@ -46,14 +46,14 @@ update. For `startup`, the session id SHALL be recorded unless the agent is a
 pure resume (has a resume-session id and is not forking), in which case the
 session id comes from the later `resume` event. For `resume`, the payload
 session id SHALL be recorded unless the agent is forking. Successful
-registration SHALL mark the agent registered and return the skwad member list.
+registration SHALL mark the agent registered and return the knot member list.
 
 #### Scenario: Fresh startup
 
 - **WHEN** a Claude agent posts register with `source` = `startup` and a
   session id, and it is not resuming
 - **THEN** the agent is registered with that session id and the response lists
-  skwad members
+  knot members
 
 #### Scenario: Resume event on a forking agent is ignored for session id
 
@@ -111,7 +111,7 @@ Claude: `transcript_path`, `cwd`, `model`, `session_id`. For Codex: `cwd`,
 The system SHALL be able to read a Claude transcript JSONL file and return the
 text of the last assistant message, scanning from the end. Content SHALL be
 read from either a plain string or an array of text parts. If the user message
-immediately preceding that assistant message is the Skwad registration prompt,
+immediately preceding that assistant message is the Knot registration prompt,
 the extractor SHALL return an empty string so callers skip it. An unreadable or
 message-free file SHALL return nothing.
 

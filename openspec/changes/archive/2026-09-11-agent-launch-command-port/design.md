@@ -2,14 +2,14 @@
 
 `openspec/specs/agent-launch-command/spec.md` already pins the target
 behavior (ported from `Skwad/Services/TerminalCommandBuilder.swift`). No
-crate builds it yet. Consumers of this crate (the terminal host in `skwad`)
+crate builds it yet. Consumers of this crate (the terminal host in `knot`)
 don't exist yet either, so this change has no wiring step - it's a pure
 library the binary crate will call into once terminal integration lands.
 
 Inputs the builder needs already exist:
-- `skwad_core::Settings` - `agent_commands` / `agent_options` (`BTreeMap
+- `knot_core::Settings` - `agent_commands` / `agent_options` (`BTreeMap
   <String, String>`), `mcp_server_enabled`, `mcp_server_port`.
-- `skwad_core::Persona` - `instructions` field.
+- `knot_core::Persona` - `instructions` field.
 - The activity-hook plugin bundle lives at repo-root `plugin/<agent-type>/`
   (currently `plugin/claude/`, `plugin/codex/`) - same layout
   `TerminalCommandBuilder.resolvePluginPath` assumes for its dev-tree
@@ -31,22 +31,22 @@ Inputs the builder needs already exist:
   terminal-integration change.
 - Resolving an app-bundled plugin path (macOS `.app` resource lookup) - only
   the dev-tree-relative lookup the spec's scenarios exercise is in scope;
-  bundled-resource resolution is a `skwad` binary-crate concern when
+  bundled-resource resolution is a `knot` binary-crate concern when
   packaging is designed.
 - A generic "agent type" enum shared across crates - `agent_type` stays a
-  `&str` here, matching `skwad-agents`' and `skwad-core`'s existing
+  `&str` here, matching `knot-agents`' and `knot-core`'s existing
   string-typed representation (`SavedAgent::agent_type`, `Settings`'
   `BTreeMap<String, String>` keys).
 
 ## Decisions
 
-**New crate `skwad-agent-launch`, not a module in `skwad-core` or
-`skwad-agents`.** The builder depends on `Settings` and `Persona` (from
-`skwad-core`) but is a distinct concern - command-line text assembly, not
+**New crate `knot-agent-launch`, not a module in `knot-core` or
+`knot-agents`.** The builder depends on `Settings` and `Persona` (from
+`knot-core`) but is a distinct concern - command-line text assembly, not
 configuration storage or agent lifecycle. Keeping it separate avoids
-`skwad-core` growing an agent-CLI-specific dependency surface, and matches
+`knot-core` growing an agent-CLI-specific dependency surface, and matches
 the existing pattern of one crate per bounded capability
-(`skwad-messaging`, `skwad-discovery`, `skwad-mcp-tools`).
+(`knot-messaging`, `knot-discovery`, `knot-mcp-tools`).
 
 **Group the builder's inputs into one `LaunchRequest` struct.** The Swift
 function already takes seven parameters (`agentType`, `settings`, `agentId`,
@@ -60,7 +60,7 @@ asked for.
 `env::current_exe()`.** The Swift version's `Bundle.main` / `#filePath`
 dance is inherently platform- and packaging-specific. This crate instead
 takes a `plugin_root: Option<&Path>` on `LaunchRequest` (or a builder field)
-- the caller (eventually `skwad`, which knows whether it's a dev checkout or
+- the caller (eventually `knot`, which knows whether it's a dev checkout or
 an installed bundle) resolves the base directory once; this crate only
 joins `<plugin_root>/<agent_type>` and checks existence. Keeps the crate
 free of `std::env` / bundle-resolution logic and trivially testable with a

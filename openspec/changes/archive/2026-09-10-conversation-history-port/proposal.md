@@ -1,22 +1,22 @@
 ## Why
 
-`skwad-git`, `skwad-discovery`, and the `skwad-core` settings store cover their
+`knot-git`, `knot-discovery`, and the `knot-core` settings store cover their
 specs; the next slice is `conversation-history`. It is the last large
 subsystem with a complete spec and no coupling to the agent runtime, the
 terminal engine, or the MCP layer: it reads other coding agents' past sessions
 for a project folder straight off disk. Porting it now keeps the "standalone
-crate first" order (like `skwad-git` and `skwad-discovery`) before the MCP and
+crate first" order (like `knot-git` and `knot-discovery`) before the MCP and
 agent-lifecycle work that does depend on the runtime.
 
 ## What Changes
 
-- Add a new crate `crates/skwad-history` implementing
+- Add a new crate `crates/knot-history` implementing
   `openspec/specs/conversation-history/spec.md`:
   - `SessionSummary` — `id`, `title` (may be empty), `timestamp`, `message_count`
     (0 when not derivable).
   - `HistoryProvider` trait: `load_sessions(folder) -> Vec<SessionSummary>`,
     `delete_session(id, folder)`. Runtime-agnostic and blocking; the GUI wraps
-    calls in `spawn_blocking`, same rule as `skwad-git`.
+    calls in `spawn_blocking`, same rule as `knot-git`.
   - Provider registry by agent type: `claude`, `codex`, `gemini`, `copilot`.
     Any other type reports unsupported and every history operation is a no-op.
   - `claude` — read `*.jsonl` under `~/.claude/projects/<dashed-folder>`
@@ -52,7 +52,7 @@ agent-lifecycle work that does depend on the runtime.
   reference.
 - Constants (base paths, `state_5.sqlite` name, recency cap `20`, title max
   length, registration-prompt needles, command-wrapper tags) in
-  `crates/skwad-history/src/consts.rs`.
+  `crates/knot-history/src/consts.rs`.
 - `HistoryError` (`thiserror`) with a crate `Result` alias; a provider I/O or
   parse failure degrades to an empty list rather than surfacing, matching the
   spec's "unparseable session still listed" behavior.
@@ -84,13 +84,13 @@ this change adds the implementation. `skip_specs: true`.
 
 ## Impact
 
-- New crate: `crates/skwad-history/` (`Cargo.toml`, `src/lib.rs`, `consts.rs`,
+- New crate: `crates/knot-history/` (`Cargo.toml`, `src/lib.rs`, `consts.rs`,
   `error.rs`, `cache.rs`, `title.rs`, `providers/{claude,codex,gemini,copilot}.rs`,
   `tests/`).
 - Modified: root `Cargo.toml` (`[workspace.dependencies]` gains `rusqlite`,
   `time`), `Cargo.lock`.
 - Dependencies added: `rusqlite` (feature `bundled`), `time` (features
   `parsing`, `formatting` / `macros` as needed).
-- `skwad-core`, `skwad-git`, `skwad-discovery`, `skwad`, and the Swift build
-  are unaffected. `skwad-history` depends only on `thiserror`, `serde`,
+- `knot-core`, `knot-git`, `knot-discovery`, `knot`, and the Swift build
+  are unaffected. `knot-history` depends only on `thiserror`, `serde`,
   `serde_json`, `rusqlite`, `time` (all via workspace).

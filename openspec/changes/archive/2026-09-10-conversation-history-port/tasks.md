@@ -1,9 +1,9 @@
 ## 1. Crate scaffold
 
-- [x] 1.1 Create `crates/skwad-history/` with `Cargo.toml` (workspace edition, `thiserror`, `serde`, `serde_json` via workspace) and empty `src/lib.rs`; verify `cargo build -p skwad-history` succeeds and `cargo metadata` lists the crate.
-- [x] 1.2 Add `rusqlite` (`features = ["bundled"]`) and `time` (`features = ["parsing", "formatting", "macros"]`) to root `[workspace.dependencies]`, reference both from `skwad-history/Cargo.toml`; verify `cargo build -p skwad-history` links and `Cargo.lock` updates.
-- [x] 1.3 Add `src/consts.rs` with the base paths (`~/.claude/projects`, `~/.codex/state_5.sqlite`, `~/.gemini/tmp`, `~/.copilot/session-state`), recency cap `20`, title max/trunc `80`/`77`, registration-prompt needles, and command-wrapper tag strings; verify `cargo build -p skwad-history`.
-- [x] 1.4 Add `src/error.rs` with `HistoryError` (`thiserror`) covering I/O, JSON, and SQLite failures, plus `pub type Result<T> = core::result::Result<T, HistoryError>`; re-export from `lib.rs`; verify `cargo build -p skwad-history`.
+- [x] 1.1 Create `crates/knot-history/` with `Cargo.toml` (workspace edition, `thiserror`, `serde`, `serde_json` via workspace) and empty `src/lib.rs`; verify `cargo build -p knot-history` succeeds and `cargo metadata` lists the crate.
+- [x] 1.2 Add `rusqlite` (`features = ["bundled"]`) and `time` (`features = ["parsing", "formatting", "macros"]`) to root `[workspace.dependencies]`, reference both from `knot-history/Cargo.toml`; verify `cargo build -p knot-history` links and `Cargo.lock` updates.
+- [x] 1.3 Add `src/consts.rs` with the base paths (`~/.claude/projects`, `~/.codex/state_5.sqlite`, `~/.gemini/tmp`, `~/.copilot/session-state`), recency cap `20`, title max/trunc `80`/`77`, registration-prompt needles, and command-wrapper tag strings; verify `cargo build -p knot-history`.
+- [x] 1.4 Add `src/error.rs` with `HistoryError` (`thiserror`) covering I/O, JSON, and SQLite failures, plus `pub type Result<T> = core::result::Result<T, HistoryError>`; re-export from `lib.rs`; verify `cargo build -p knot-history`.
 
 ## 2. Title utilities
 
@@ -12,7 +12,7 @@
 
 ## 3. Core types and registry
 
-- [x] 3.1 Define `SessionSummary { id: String, title: String, timestamp: OffsetDateTime, message_count: usize }` (derive `Clone`, `Debug`, `PartialEq`) in `lib.rs` or `provider.rs`; verify `cargo build -p skwad-history`.
+- [x] 3.1 Define `SessionSummary { id: String, title: String, timestamp: OffsetDateTime, message_count: usize }` (derive `Clone`, `Debug`, `PartialEq`) in `lib.rs` or `provider.rs`; verify `cargo build -p knot-history`.
 - [x] 3.2 Define `trait HistoryProvider { fn load_sessions(&self, folder: &str) -> Vec<SessionSummary>; fn delete_session(&self, id: &str, folder: &str); }` and `fn provider(agent_type: &str) -> Option<Box<dyn HistoryProvider>>` (match over `claude`/`codex`/`gemini`/`copilot`) plus `pub fn supports_history(agent_type: &str) -> bool`; verify a test asserts `supports_history("shell")` is false and the four known types are true.
 
 ## 4. Claude provider
@@ -48,6 +48,6 @@
 
 ## 9. Integration and checks
 
-- [x] 9.1 Re-export the public surface (`SessionSummary`, `HistoryProvider`, `HistoryCache`, `HistoryError`, `Result`, `supports_history`) from `lib.rs` with module docs linking `openspec/specs/conversation-history/spec.md`; verify `cargo doc -p skwad-history` builds with no warnings.
+- [x] 9.1 Re-export the public surface (`SessionSummary`, `HistoryProvider`, `HistoryCache`, `HistoryError`, `Result`, `supports_history`) from `lib.rs` with module docs linking `openspec/specs/conversation-history/spec.md`; verify `cargo doc -p knot-history` builds with no warnings.
 - [x] 9.2 Run `make rust` (nightly fmt check + clippy `-D warnings` + test + build) for the whole workspace and confirm it passes.
 - [x] 9.3 Run `openspec validate conversation-history-port` and confirm the change validates.

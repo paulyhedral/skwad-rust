@@ -1,6 +1,6 @@
 ## Why
 
-`skwad-core`'s settings store already holds the `Persona` model, the
+`knot-core`'s settings store already holds the `Persona` model, the
 `personas` collection, `active_personas()`, and `install_default_personas()`
 (from `settings-persistence-port`). The `personas` spec also requires
 create/update, type-dependent delete (soft for system, hard for user),
@@ -10,7 +10,7 @@ change) has a complete persona API to attach a `persona_id` to an agent.
 
 ## What Changes
 
-- Add to `Settings` in `crates/skwad-core/src/settings/mod.rs`:
+- Add to `Settings` in `crates/knot-core/src/settings/mod.rs`:
   - `add_persona(name, instructions) -> &Persona` - appends a new `user`/
     `enabled` persona and persists.
   - `update_persona(id, name, instructions) -> Result<()>` - renames/rewrites
@@ -55,6 +55,6 @@ true`.
 
 ## Impact
 
-- Modified: `crates/skwad-core/src/settings/mod.rs` (new methods + tests).
-- No new dependencies, no new crates, no changes to `skwad-git`,
-  `skwad-discovery`, `skwad-history`, `skwad`, or the Swift app.
+- Modified: `crates/knot-core/src/settings/mod.rs` (new methods + tests).
+- No new dependencies, no new crates, no changes to `knot-git`,
+  `knot-discovery`, `knot-history`, `knot`, or the Swift app.

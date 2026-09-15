@@ -1,16 +1,16 @@
 ## 1. Workspace scaffold
 
-- [x] 1.1 Add root virtual `Cargo.toml` with `members = ["crates/*"]` and a shared `[workspace.package]` (edition 2021, license, repo); verify `cargo metadata` succeeds. Done: `AGPL-3.0-only`, repo `Kochava-Studios/skwad`, `[workspace.dependencies]` for thiserror/tempfile/insta.
+- [x] 1.1 Add root virtual `Cargo.toml` with `members = ["crates/*"]` and a shared `[workspace.package]` (edition 2021, license, repo); verify `cargo metadata` succeeds. Done: `AGPL-3.0-only`, repo `Kochava-Studios/knot`, `[workspace.dependencies]` for thiserror/tempfile/insta.
 - [x] 1.2 Add `rust-toolchain.toml` pinning a stable channel plus the `rustfmt`/`clippy` components; verify `rustc --version` matches. Done: pinned `1.98.0`.
 - [x] 1.3 Add `/target/` and `**/*.rs.bk` to `.gitignore`; verify `git status` stays clean after `cargo build`. Done: `git check-ignore target` passes, no stray files.
-- [x] 1.4 Create `crates/skwad-core` (lib) with `error.rs` (`Error` via `thiserror`, `Result<T>` alias), `consts.rs`, and `t(key) -> String` (in `l10n.rs`) backed by a static match; verify `cargo test -p skwad-core`. Done: 2 tests pass (`app.name` -> `Skwad`, unknown -> key).
-- [x] 1.5 Wire gpui: depend on `gpui-kit` 0.6 (crates.io — see design.md, supersedes the planned git-pinned dependency), `main` opens an empty window (`Root` + empty `div()`); verify `cargo build -p skwad` and `cargo run -p skwad` shows a window. Done: ran the binary, window process stayed up; killed manually. No `--features gui` gate needed — no pin/build-time risk to gate against.
+- [x] 1.4 Create `crates/knot-core` (lib) with `error.rs` (`Error` via `thiserror`, `Result<T>` alias), `consts.rs`, and `t(key) -> String` (in `l10n.rs`) backed by a static match; verify `cargo test -p knot-core`. Done: 2 tests pass (`app.name` -> `Knot`, unknown -> key).
+- [x] 1.5 Wire gpui: depend on `gpui-kit` 0.6 (crates.io — see design.md, supersedes the planned git-pinned dependency), `main` opens an empty window (`Root` + empty `div()`); verify `cargo build -p knot` and `cargo run -p knot` shows a window. Done: ran the binary, window process stayed up; killed manually. No `--features gui` gate needed — no pin/build-time risk to gate against.
 - [x] 1.6 Superseded by 1.5: `gpui-kit` resolves from crates.io with an ordinary version requirement, so there is no unstable-build case to feature-gate. No stub `main` remains.
 
-## 2. skwad-git crate skeleton
+## 2. knot-git crate skeleton
 
-- [x] 2.1 Create `crates/skwad-git` (lib), no tokio/gpui/axum deps; `thiserror` + dev-deps `insta`/`tempfile`; verify `cargo tree` shows no banned runtime crates. Done: `cargo tree -e normal | grep -iE 'tokio|gpui|axum|hyper|mio'` -> none.
-- [x] 2.2 Add `consts.rs` with `DEFAULT_TIMEOUT: Duration` (30s) and argv arrays for every git subcommand in the spec; verify `cargo build -p skwad-git`. Done: 15 argv consts + `DIFF_STAGED_FLAG`.
+- [x] 2.1 Create `crates/knot-git` (lib), no tokio/gpui/axum deps; `thiserror` + dev-deps `insta`/`tempfile`; verify `cargo tree` shows no banned runtime crates. Done: `cargo tree -e normal | grep -iE 'tokio|gpui|axum|hyper|mio'` -> none.
+- [x] 2.2 Add `consts.rs` with `DEFAULT_TIMEOUT: Duration` (30s) and argv arrays for every git subcommand in the spec; verify `cargo build -p knot-git`. Done: 15 argv consts + `DIFF_STAGED_FLAG`.
 - [x] 2.3 Define `GitError` (`Timeout { command }`, `Command { command, output, code }`, `Io`, `Parse`) + `Result<T>` alias with `thiserror`; verify unit tests assert `Display` carries the command string. Done: 2 tests pass (Timeout + Command Display).
 
 ## 3. Command runner (spec: Command runner)
@@ -53,7 +53,7 @@
 
 - [x] 9.1 Add `Makefile` targets `rust-fmt`/`rust-lint`/`rust-test`/`rust-build` (+ `rust` aggregate); verify each green locally via `make rust-*`. Done.
 - [x] 9.2 Add `.github/workflows/rust.yml`: `ubuntu-latest` + `macos-latest` matrix, `actions-rust-lang/setup-rust-toolchain` (cache + rustfmt/clippy), a git `>= 2.30` gate step, then fmt/clippy/test/build. Done. Note: CI fmt runs on stable (`cargo fmt --all --check`), not `+nightly`; workflow triggers on main push/PR so it first executes on the merge PR.
-- [x] 9.3 Add `crates/skwad-git/README.md` (git binary requirement, min 2.30, tested 2.55); referenced from the `lib.rs` crate doc comment. Done.
+- [x] 9.3 Add `crates/knot-git/README.md` (git binary requirement, min 2.30, tested 2.55); referenced from the `lib.rs` crate doc comment. Done.
 
 ## 10. Verification
 
@@ -72,4 +72,4 @@
   | Staging and commit operations | Commit failure propagates | `tests/ops.rs::commit_failure_propagates` |
   | Branch and ahead/behind queries | No upstream | `tests/branch.rs::no_upstream_means_zero_counts_and_not_unpushed` |
 
-- [x] 10.2 `openspec validate rust-port-foundation --strict` -> valid. `make rust-fmt rust-lint rust-test` -> all pass (28 tests: 2 skwad-core + 26 skwad-git). Done.
+- [x] 10.2 `openspec validate rust-port-foundation --strict` -> valid. `make rust-fmt rust-lint rust-test` -> all pass (28 tests: 2 knot-core + 26 knot-git). Done.

@@ -11,10 +11,10 @@ restart, resume, edit, bench deploy, ordering), (2) terminal/controller
 wiring and split-pane layout selection, and (3) git-stats/markdown/mermaid
 panel state. Only (1) is in scope; `openspec/specs/agent-lifecycle/spec.md`
 covers exactly the scenarios ported here, and `Skwad/Models/Workspace.swift`'s
-layout fields already exist as opaque data on `skwad_core::Workspace`.
+layout fields already exist as opaque data on `knot_core::Workspace`.
 
 Constraints from repo conventions: no async runtime inside the crate (same
-rule as `skwad-git`/`skwad-history`), `Result` + `thiserror`, no panics in
+rule as `knot-git`/`knot-history`), `Result` + `thiserror`, no panics in
 library code, constants in one module, functions <= 5-6 args, `cargo
 +nightly fmt`.
 
@@ -22,9 +22,9 @@ library code, constants in one module, functions <= 5-6 args, `cargo
 
 **Goals:**
 
-- One crate, `skwad-agents`, exposing an `Agent` runtime type and an
+- One crate, `knot-agents`, exposing an `Agent` runtime type and an
   `AgentStore` that implements every requirement in the spec, backed by
-  `skwad_core::Settings` for persistence.
+  `knot_core::Settings` for persistence.
 - A durable/runtime field split that is structurally enforced: `to_saved`
   only ever reads the eight durable fields, so a new runtime field added
   later can't leak into persistence by accident.
@@ -48,20 +48,20 @@ library code, constants in one module, functions <= 5-6 args, `cargo
 
 ### Crate layout
 
-`skwad-agents` as a sibling of `skwad-git`/`skwad-history`, depending only on
-`skwad-core` (for `Settings`, `SavedAgent`, `Workspace`, `BenchAgent`,
+`knot-agents` as a sibling of `knot-git`/`knot-history`, depending only on
+`knot-core` (for `Settings`, `SavedAgent`, `Workspace`, `BenchAgent`,
 `Persona`) and `thiserror`/`serde`/`uuid` via workspace. Modules: `consts`,
 `error`, `agent` (the `Agent` struct + `AgentState`), `convert`
 (`to_saved`/`from_saved`), `store` (`AgentStore` and its operations).
 `lib.rs` re-exports `Agent`, `AgentState`, `AgentStore`, `AgentError`,
 `Result`.
 
-Alternative: extend `skwad_core::settings` in place, the way `personas-port`
+Alternative: extend `knot_core::settings` in place, the way `personas-port`
 extended it. Rejected - personas are a durable record with no runtime
 half; `Agent` is the opposite (mostly runtime state layered on a durable
 core), and folding it into `settings` would make that module own both the
-storage format and the state machine. Keeping `skwad-agents` separate
-mirrors how `skwad-history` stayed out of `skwad-core` despite also reading
+storage format and the state machine. Keeping `knot-agents` separate
+mirrors how `knot-history` stayed out of `knot-core` despite also reading
 `Settings`-adjacent data.
 
 ### `Agent` shape and the durable/runtime split
@@ -107,7 +107,7 @@ itself, in removal order) instead of performing IO. The spec's "if
 registered, unregister first" is expressed as a `bool` the caller inspects
 per returned id (`AgentStore::remove` doesn't call any MCP client - there
 isn't one in this crate); this keeps the crate's "no side effects beyond its
-own state" property from `skwad-git`/`skwad-history` intact.
+own state" property from `knot-git`/`knot-history` intact.
 
 ### Restart token and "torn down" state
 
@@ -133,7 +133,7 @@ manually pointed elsewhere is left alone), matching
 - [`Agent`/`AgentStore` duplicate structure that will later live behind a
   `Mutex`/actor for the real app] -> acceptable now; the spec doesn't
   constrain concurrency and a later change picks the wrapper once the
-  terminal/MCP integration shape is known, same deferral `skwad-git` made for
+  terminal/MCP integration shape is known, same deferral `knot-git` made for
   its own runtime-agnostic design.
 - [`Vec`-backed store is O(n) per lookup] -> fine at agent-list scale (tens);
   revisit only if a later spec's requirements make it a measured bottleneck.
@@ -145,6 +145,6 @@ manually pointed elsewhere is left alone), matching
 ## Migration Plan
 
 New crate, no existing behavior touched. Land behind the OpenSpec change,
-merge with a merge commit (`feat(skwad-agents): ...`). Rollback is deleting
+merge with a merge commit (`feat(knot-agents): ...`). Rollback is deleting
 the crate directory and its one workspace-member line. Nothing consumes it
 until a later change wires the app.

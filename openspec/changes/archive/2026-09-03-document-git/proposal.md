@@ -1,6 +1,6 @@
 ## Why
 
-Skwad shows per-agent git status, drives stage/commit from the UI, discovers
+Knot shows per-agent git status, drives stage/commit from the UI, discovers
 repositories and worktrees under a source folder, creates worktrees for new
 agents, and auto-refreshes on filesystem changes. The Rust port needs the git
 behavior stated: which commands, how output is parsed, timeout handling, and

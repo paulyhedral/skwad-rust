@@ -1,6 +1,6 @@
 ## Why
 
-Skwad lets a user browse and resume a coding agent's past sessions for the
+Knot lets a user browse and resume a coding agent's past sessions for the
 current folder. Each supported agent stores its history in a different place
 and format on disk. The Rust port needs the per-agent source locations, the
 common session-summary shape, and the caching/refresh behavior stated.

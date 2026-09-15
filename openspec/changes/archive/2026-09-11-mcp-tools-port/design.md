@@ -1,6 +1,6 @@
 ## Context
 
-`skwad_mcp::ToolCatalog` is the seam (`crates/skwad-mcp/src/tools.rs`):
+`knot_mcp::ToolCatalog` is the seam (`crates/knot-mcp/src/tools.rs`):
 
 ```rust
 #[async_trait]
@@ -14,13 +14,13 @@ pub trait ToolCatalog: Send + Sync {
 catalog it's given (`EmptyCatalog` today). Everything the thirteen tools need
 already exists as a library call:
 
-- `skwad_agents::AgentStore` - `create`, `remove`, `edit`, lookup, workspace
+- `knot_agents::AgentStore` - `create`, `remove`, `edit`, lookup, workspace
   membership.
-- `skwad_messaging::{send, check, broadcast}` plus `SendError`.
-- `skwad_discovery::scan` - `RepoInfo`/`WorktreeInfo`.
-- `skwad_git::Repository::create_worktree`, `worktree::is_working_tree`.
+- `knot_messaging::{send, check, broadcast}` plus `SendError`.
+- `knot_discovery::scan` - `RepoInfo`/`WorktreeInfo`.
+- `knot_git::Repository::create_worktree`, `worktree::is_working_tree`.
 
-None of these run behind a shared lock today outside `crates/skwad`'s own
+None of these run behind a shared lock today outside `crates/knot`'s own
 wiring - this change assumes the catalog is constructed with `Arc<Mutex<...>>`
 handles the binary crate already owns (same shape `McpServer`'s
 `AgentsSnapshotFn` uses), not new locking primitives.
@@ -54,7 +54,7 @@ panels). Grouping by backing system (`agents.rs`, `messaging.rs`,
 coherent; a `mod.rs`-style one-file-per-tool split would just fragment
 near-identical arg-parsing boilerplate. `create-worktree` lands in
 `repos.rs` alongside `list-repos`/`list-worktrees` since all three touch
-`skwad-discovery`/`skwad-git`, not `agents.rs`, even though the spec groups
+`knot-discovery`/`knot-git`, not `agents.rs`, even though the spec groups
 it near `close-agent` narratively.
 
 **Argument parsing: a small helper, not `serde` `Deserialize` per tool.**
@@ -107,7 +107,7 @@ called from each handler - matches the Swift reference's single
 
 - [New mutable state on `Agent` with no reader yet] -> Acceptable: the spec
   requires the tools to persist this state now regardless of when a UI
-  consumes it, same shape as `skwad-messaging`'s `DeliveryNotifier` trait
+  consumes it, same shape as `knot-messaging`'s `DeliveryNotifier` trait
   landing before any terminal-injection implementation existed.
 - [`create-agent`'s bench-template defaulting duplicates Swift's
   field-by-field fallback logic (`arguments["x"] ?? benchAgent?.x`)] ->
@@ -116,7 +116,7 @@ called from each handler - matches the Swift reference's single
   name/type/repo/icon/command/persona tuple once, so the fallback chain
   exists in one place, tested directly rather than only through the full
   tool-call path.
-- [`skwad-git`'s `create_worktree` shells out to `git`; a bad `repoPath` or
+- [`knot-git`'s `create_worktree` shells out to `git`; a bad `repoPath` or
   concurrent worktree add could leave `git` mid-operation] -> Out of scope
   for this change: `Repository::create_worktree` already surfaces `git`'s
   own error via `GitError::Command`, and the tool handler just relays that

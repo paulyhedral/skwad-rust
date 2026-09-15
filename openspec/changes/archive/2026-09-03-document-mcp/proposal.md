@@ -1,6 +1,6 @@
 ## Why
 
-Agent-to-agent coordination is the reason Skwad exists. The Swift app runs a
+Agent-to-agent coordination is the reason Knot exists. The Swift app runs a
 local HTTP server exposing an MCP tool surface plus a message queue; the Rust
 port needs that behavior stated as requirements, independent of Hummingbird.
 

@@ -26,12 +26,12 @@ pure library with no binary-crate wiring.
   to inject (guard, registration gating) and reports the text via a callback;
   a later consumer performs the send.
 - Desktop notifications: the tracker raises a signal on Awaiting-input entry;
-  the notification itself is a `skwad`/UI concern.
+  the notification itself is a `knot`/UI concern.
 - Autopilot classification (see `agent-hooks` spec).
 
 ## Decisions
 
-**New crate `skwad-activity`, one tracker per agent.** A `Tracker` owns
+**New crate `knot-activity`, one tracker per agent.** A `Tracker` owns
 timers that are inherently one-agent-scoped (idle, input-protection,
 registration). A shared `ActivityService`/registry across agents is not
 needed yet and would be an extra layer nobody asked for; the state machine
@@ -54,7 +54,7 @@ derives its own tracking preset and long-startup behavior, matching the
 Swift lookup tables.
 
 **State lives on the tracker, not on `Agent`.** The spec's presentation of
-agent status (`AgentState`) already exists in `skwad-agents`; the tracker
+agent status (`AgentState`) already exists in `knot-agents`; the tracker
 emits `AgentState` transitions plus the timestamp through a callback. A later
 integration change writes those into the `AgentStore`. Duplicating state on
 `Agent` now would create two sources of truth.
@@ -65,7 +65,7 @@ global `availableAgents` list; the Rust tracker takes
 `registration: Option<RegistrationConfig { first_idle_delay_short,
 first_idle_delay_long, subsequent_delay, is_long_startup }>` and injects the
 prompt via a callback (`FnOnce(String)`), so the prompt text comes from
-`skwad-agent-launch`'s `registration_prompt(agent_id)` without the tracker
+`knot-agent-launch`'s `registration_prompt(agent_id)` without the tracker
 depending on registration-prompt string assembly.
 
 **Input is keycode-agnostic for the state transitions, keycode-aware for
@@ -84,7 +84,7 @@ platform crate.
   spec, terminal writes only when the tracking bitfield allows. A single
   `&mut self` API makes ordering explicit.
 - [The spec references `AgentState::Input` by a Swift raw string that
-  `skwad-agents` already serializes] -> reuse `skwad_agents::AgentState` and
+  `knot-agents` already serializes] -> reuse `knot_agents::AgentState` and
   its existing serde names; presentation color mapping for the card UI stays
   a later concern.
 

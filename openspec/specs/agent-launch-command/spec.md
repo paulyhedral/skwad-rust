@@ -5,7 +5,7 @@ Defines how the shell command that launches an agent in its terminal is
 assembled from settings and per-agent-type rules: the base command and user
 options, resume/fork arguments, MCP configuration and hook plugin injection,
 inline registration arguments, the working-directory wrapper, the
-`SKWAD_AGENT_ID` environment variable, leading-space history suppression, and
+`KNOT_AGENT_ID` environment variable, leading-space history suppression, and
 the shell-agent path.
 
 ## Requirements
@@ -45,15 +45,15 @@ When the MCP server is enabled, the system SHALL append per-agent-type MCP
 arguments, and SHALL inject the activity hook when a plugin directory is
 resolved. The arguments differ by type:
 
-- Claude: `--mcp-config` with the skwad HTTP server, `--allowed-tools
-  'mcp__skwad__*'`, and `--plugin-dir <path>` when the plugin dir resolves.
+- Claude: `--mcp-config` with the knot HTTP server, `--allowed-tools
+  'mcp__knot__*'`, and `--plugin-dir <path>` when the plugin dir resolves.
 - Codex: only `-c 'notify=["bash","<plugin>/scripts/notify.sh"]'` when the
   plugin dir resolves. This builder does not wire Codex's MCP server URL; that
   comes from the user options or the agent's own config.
-- Gemini: only `--allowed-mcp-server-names skwad` (no URL; assumes the server
+- Gemini: only `--allowed-mcp-server-names knot` (no URL; assumes the server
   is configured for the agent elsewhere).
-- Copilot: `--additional-mcp-config` with the skwad HTTP server plus one
-  `--allow-tool 'skwad(<tool>)'` flag per messaging tool.
+- Copilot: `--additional-mcp-config` with the knot HTTP server plus one
+  `--allow-tool 'knot(<tool>)'` flag per messaging tool.
 
 When MCP is disabled, none of these — nor the inline registration arguments —
 are added.
@@ -81,7 +81,7 @@ are added.
 When MCP is enabled and the agent type supports inline registration
 (`claude`, `codex`, `opencode`, `gemini`, `copilot`, `shell`), the system SHALL
 append registration arguments carrying the agent id: for types that support a
-system prompt, the skwad system instructions plus the registration user prompt;
+system prompt, the knot system instructions plus the registration user prompt;
 for others, the combined registration prompt. Agents that do not support inline
 registration SHALL instead be registered by the deferred prompt-injection path
 (see `activity-detection`).
@@ -133,7 +133,7 @@ all on resume or fork.
 ### Requirement: Initialization wrapper
 
 The final terminal command SHALL be
-`<space>cd '<folder>' && clear && SKWAD_AGENT_ID=<id> <agent-command>`. The
+`<space>cd '<folder>' && clear && KNOT_AGENT_ID=<id> <agent-command>`. The
 leading space suppresses shell history (given `ignorespace` / zsh default).
 When the agent command is empty (shell agent), the wrapper SHALL be
 `<space>cd '<folder>' && clear` with no env prefix.
@@ -141,14 +141,14 @@ When the agent command is empty (shell agent), the wrapper SHALL be
 #### Scenario: Env var precedes the agent command
 
 - **WHEN** a non-shell agent is launched
-- **THEN** the command sets `SKWAD_AGENT_ID` to the agent's id immediately
+- **THEN** the command sets `KNOT_AGENT_ID` to the agent's id immediately
   before the agent command
 
 #### Scenario: Shell agent wrapper
 
 - **WHEN** a shell agent with no custom command is launched
 - **THEN** the command is `cd '<folder>' && clear` (leading space) and sets no
-  `SKWAD_AGENT_ID`
+  `KNOT_AGENT_ID`
 
 ### Requirement: Shell agent command
 

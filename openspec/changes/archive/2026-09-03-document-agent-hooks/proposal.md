@@ -1,7 +1,7 @@
 ## Why
 
 Claude and Codex agents report their own lifecycle (session start, turn start,
-turn complete, permission prompts) through plugin hooks that POST to the Skwad
+turn complete, permission prompts) through plugin hooks that POST to the Knot
 server. Those events are the authoritative status source for hook-capable
 agents and also carry session ids and working-directory metadata. The Rust port
 needs the event contract and the per-agent-type handling stated.

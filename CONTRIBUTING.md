@@ -1,6 +1,6 @@
-# Contributing to Skwad (Rust port)
+# Contributing to Knot (Rust port)
 
-This repo holds the Rust port of Skwad alongside the original Swift/SwiftUI app.
+This repo holds the Rust port of Knot alongside the original Swift/SwiftUI app.
 The Swift app under `Skwad/` is the behavioral reference; the port moves it into
 the `crates/` workspace one subsystem at a time, each driven by an OpenSpec
 change and tied to a spec contract.
@@ -9,7 +9,7 @@ change and tied to a spec contract.
 
 - Rust toolchain is pinned by `rust-toolchain.toml` (1.98.0, with `rustfmt` and
   `clippy`). `rustup` picks it up automatically.
-- `git` >= 2.30 must be on `PATH` - `skwad-git` tests parse porcelain v2 output.
+- `git` >= 2.30 must be on `PATH` - `knot-git` tests parse porcelain v2 output.
 - Nightly `rustfmt` is used for formatting: `rustup toolchain install nightly`.
 
 ## Workflow
@@ -49,8 +49,8 @@ before committing.
 as the scope:
 
 ```
-feat(skwad-git): parse ahead/behind from status
-fix(skwad-discovery): debounce watch events per folder
+feat(knot-git): parse ahead/behind from status
+fix(knot-discovery): debounce watch events per folder
 docs(openspec): archive worktree-management-port change
 build(rust): add dependabot config
 ```
@@ -79,7 +79,7 @@ calling the reusable `sweetrpg/github-actions` `rust-*-release` workflows:
    test suite, cuts a GitHub Release with `git-cliff`-generated notes, and
    merges `main` back into `develop` so the two branches stay in sync.
 
-These need repo secrets `SKWAD_CI_APP_ID` / `SKWAD_CI_PRIVATE_KEY` (a GitHub App
+These need repo secrets `KNOT_CI_APP_ID` / `KNOT_CI_PRIVATE_KEY` (a GitHub App
 with `contents: write` + `pull-requests: write`, installed on this repo) before
 Prepare/Tag Release can run - they mint a bot token so the release commit and
 the develop merge-back satisfy branch protection. No crate here publishes to

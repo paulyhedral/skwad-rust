@@ -15,8 +15,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - `workspace (ubuntu-latest)` CI: install the Linux system packages `gpui-component` needs to build (fontconfig, wayland, webkit2gtk, xkbcommon, x11-xcb, ssl, zstd, vulkan) - the job failed on every run without them
-- `skwad-discovery`: switching the source folder could race a not-yet-torn-down watcher into publishing a stale rescan from the previous folder
-- `skwad-discovery`: on Linux, a rescan's own directory read could re-trigger its own debounce indefinitely (inotify watches directory opens; the watch never went quiet)
+- `knot-discovery`: switching the source folder could race a not-yet-torn-down watcher into publishing a stale rescan from the previous folder
+- `knot-discovery`: on Linux, a rescan's own directory read could re-trigger its own debounce indefinitely (inotify watches directory opens; the watch never went quiet)
 
 
 ## [1.9.0] - 2026-04-03
@@ -85,7 +85,7 @@ All notable changes to this project will be documented in this file.
 
 ## [1.7.0] - 2026-03-04
 
-**Personas** — Give your agents personality. Assign a persona when creating an agent to influence its coding style and philosophy. Want a TDD purist? Pick Kent Beck. Need raw performance focus? Go with John Carmack. Skwad ships with 6 built-in personas from legendary engineering minds, and you can create your own. Agents can also attach personas when they create new agents via MCP. Personas work with any agent that supports system prompts (Claude, Codex).
+**Personas** — Give your agents personality. Assign a persona when creating an agent to influence its coding style and philosophy. Want a TDD purist? Pick Kent Beck. Need raw performance focus? Go with John Carmack. Knot ships with 6 built-in personas from legendary engineering minds, and you can create your own. Agents can also attach personas when they create new agents via MCP. Personas work with any agent that supports system prompts (Claude, Codex).
 
 **Bench** — Save your favorite agent configurations and deploy them instantly. Right-click any agent to add it to the bench, then drag it into any workspace to spin up a pre-configured agent in seconds. Great for reusable setups you reach for often.
 

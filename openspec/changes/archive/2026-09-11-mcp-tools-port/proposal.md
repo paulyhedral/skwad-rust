@@ -1,28 +1,28 @@
 ## Why
 
-`skwad-mcp` dispatches `tools/list`/`tools/call` through a `ToolCatalog`
+`knot-mcp` dispatches `tools/list`/`tools/call` through a `ToolCatalog`
 trait (`EmptyCatalog` is the only implementation so far). Every crate the
-tool catalog needs - `skwad-agents` (lifecycle), `skwad-messaging`
-(send/check/broadcast), `skwad-discovery` (repos), `skwad-git` (worktrees) -
+tool catalog needs - `knot-agents` (lifecycle), `knot-messaging`
+(send/check/broadcast), `knot-discovery` (repos), `knot-git` (worktrees) -
 is now ported, so the concrete catalog from `openspec/specs/mcp-tools/spec.md`
 can be wired in.
 
 ## What Changes
 
-- Add a new crate `crates/skwad-mcp-tools` implementing the thirteen tools
-  the spec names, as a `ToolCatalog` (`skwad_mcp::ToolCatalog`) built over
-  handles into `skwad-agents`, `skwad-messaging`, `skwad-discovery`, and
-  `skwad-git`:
+- Add a new crate `crates/knot-mcp-tools` implementing the thirteen tools
+  the spec names, as a `ToolCatalog` (`knot_mcp::ToolCatalog`) built over
+  handles into `knot-agents`, `knot-messaging`, `knot-discovery`, and
+  `knot-git`:
   - `register-agent`, `list-agents`: mark registered, return roster scoped
     to the caller's workspace (companions excluded unless owned).
   - `send-message`, `check-messages`, `broadcast-message`: thin adapters
-    over `skwad_messaging::{send, check, broadcast}`; `SendError`'s
+    over `knot_messaging::{send, check, broadcast}`; `SendError`'s
     `Display` becomes the `isError` text verbatim.
-  - `list-repos`, `list-worktrees`: adapters over `skwad_discovery::scan`.
+  - `list-repos`, `list-worktrees`: adapters over `knot_discovery::scan`.
   - `create-agent`, `close-agent`: adapters over `AgentStore::create` /
     `AgentStore::remove`, including bench-template defaulting and the
     creator-only close restriction.
-  - `create-worktree`: adapter over `skwad_git::Repository::create_worktree`
+  - `create-worktree`: adapter over `knot_git::Repository::create_worktree`
     plus `is_working_tree` for the not-a-repo check.
   - `set-status`: adapter over the agent's `status_text` field (already on
     `Agent`; no new state).
@@ -31,7 +31,7 @@ can be wired in.
     `markdown_history: Vec<PathBuf>`, `mermaid: Option<(String, Option
     <String>)>`) plus setters on `AgentStore`, since no UI consumes this yet.
     Tool handlers validate inputs and update this state; actually rendering
-    a panel is later UI work, same deferral shape `skwad-messaging` used for
+    a panel is later UI work, same deferral shape `knot-messaging` used for
     `DeliveryNotifier`.
   - A single `agentNotFoundError`-equivalent helper producing the Swift
     reference's recovery-list message (every other agent's name/folder/id)
@@ -48,9 +48,9 @@ can be wired in.
     check, create-worktree with an empty `branchName`, set-status clearing
     to empty, display-markdown history ordering, view-mermaid title
     handling.
-- Wire the new catalog into `crates/skwad/src` wherever `McpServer` is
+- Wire the new catalog into `crates/knot/src` wherever `McpServer` is
   constructed, replacing `EmptyCatalog`.
-- Add `crates/skwad-mcp-tools` to the workspace `Cargo.toml` members. No new
+- Add `crates/knot-mcp-tools` to the workspace `Cargo.toml` members. No new
   `[workspace.dependencies]`.
 
 Non-goals:
@@ -77,12 +77,12 @@ change implements. `skip_specs: true`.
 
 ## Impact
 
-- New crate: `crates/skwad-mcp-tools/` (`Cargo.toml`, `src/lib.rs`,
+- New crate: `crates/knot-mcp-tools/` (`Cargo.toml`, `src/lib.rs`,
   `consts.rs`, `error.rs`, plus one module per tool group: `agents.rs`,
   `messaging.rs`, `repos.rs`, `panels.rs`).
-- Modified: `crates/skwad-agents/src/agent.rs` and `store.rs` (panel-state
-  fields and setters), `crates/skwad/src` (catalog wiring), root
-  `Cargo.toml` (workspace members gains `skwad-mcp-tools`), `Cargo.lock`.
-- `skwad-core`, `skwad-git`, `skwad-discovery`, `skwad-history`,
-  `skwad-messaging`, `skwad-mcp` (`ToolCatalog` trait itself) are
+- Modified: `crates/knot-agents/src/agent.rs` and `store.rs` (panel-state
+  fields and setters), `crates/knot/src` (catalog wiring), root
+  `Cargo.toml` (workspace members gains `knot-mcp-tools`), `Cargo.lock`.
+- `knot-core`, `knot-git`, `knot-discovery`, `knot-history`,
+  `knot-messaging`, `knot-mcp` (`ToolCatalog` trait itself) are
   unaffected - this change is a consumer, not a change to their contracts.

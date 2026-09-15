@@ -1,6 +1,6 @@
 ## Why
 
-`skwad-git` and `skwad-discovery` cover their specs, but nothing persists app
+`knot-git` and `knot-discovery` cover their specs, but nothing persists app
 state yet. `settings-persistence` is the next slice: a self-contained
 capability with a complete spec, no GUI / async / MCP. It defines the durable
 shapes (`SavedAgent`, `Persona`, `BenchAgent`, workspaces, recent repos) and the
@@ -9,7 +9,7 @@ agent launch) reads and writes, so it is a prerequisite for that work.
 
 ## What Changes
 
-- Add a `settings` module to `skwad-core` implementing
+- Add a `settings` module to `knot-core` implementing
   `openspec/specs/settings-persistence/spec.md`:
   - `Settings` — one struct holding the scalar values (appearance mode,
     restore-layout, keep-in-menu-bar, MCP enabled, MCP port default `8766`,
@@ -37,11 +37,11 @@ agent launch) reads and writes, so it is a prerequisite for that work.
     and sorts case-insensitively by name; the six default system personas
     install by fixed id, skipping ids already present (including soft-deleted).
 - Add `serde` (with `derive`), `serde_json`, `directories`, and `uuid` (v4,
-  serde) to `[workspace.dependencies]`; `skwad-core` depends on all four.
+  serde) to `[workspace.dependencies]`; `knot-core` depends on all four.
 - Constants (config file name, MCP port default, recent-repos cap, robot-emoji
   default, source-folder candidates, default persona ids/text) in
-  `skwad-core/src/consts.rs`.
-- Extend `skwad-core/src/error.rs` with the store's I/O / serialization variant.
+  `knot-core/src/consts.rs`.
+- Extend `knot-core/src/error.rs` with the store's I/O / serialization variant.
 - Unit tests: scalar round-trip, avatar default on save, legacy persona
   decode, corrupt-blob-yields-empty, first-launch detection order, recent-repos
   MRU, same-folder bench replacement.
@@ -70,11 +70,11 @@ this change adds the implementation. `skip_specs: true`.
 
 ## Impact
 
-- New: `crates/skwad-core/src/settings.rs` (plus record submodules if it grows
-  past the file-size limit), `crates/skwad-core/tests/`.
-- Modified: `crates/skwad-core/src/lib.rs` (module + re-exports),
-  `crates/skwad-core/src/consts.rs`, `crates/skwad-core/src/error.rs`,
-  `crates/skwad-core/Cargo.toml`, root `Cargo.toml` (workspace deps),
+- New: `crates/knot-core/src/settings.rs` (plus record submodules if it grows
+  past the file-size limit), `crates/knot-core/tests/`.
+- Modified: `crates/knot-core/src/lib.rs` (module + re-exports),
+  `crates/knot-core/src/consts.rs`, `crates/knot-core/src/error.rs`,
+  `crates/knot-core/Cargo.toml`, root `Cargo.toml` (workspace deps),
   `Cargo.lock`.
 - Dependencies added: `serde`, `serde_json`, `directories`, `uuid` (workspace).
-- `skwad-git`, `skwad-discovery`, `skwad`, and the Swift build are unaffected.
+- `knot-git`, `knot-discovery`, `knot`, and the Swift build are unaffected.

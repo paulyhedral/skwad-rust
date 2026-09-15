@@ -1,6 +1,6 @@
 ## Context
 
-`Settings` (`crates/skwad-core/src/settings/mod.rs`) already owns `personas:
+`Settings` (`crates/knot-core/src/settings/mod.rs`) already owns `personas:
 Vec<Persona>`, `active_personas()`, and `install_default_personas()`, all
 persisted through the existing `persist()` method (see `settings-persistence`
 spec). This change adds the remaining CRUD/lookup/restore methods on the same

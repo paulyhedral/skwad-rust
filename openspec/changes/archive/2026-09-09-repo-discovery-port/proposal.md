@@ -1,13 +1,13 @@
 ## Why
 
-`skwad-git` covers `git-operations` and `worktree-management`. `repo-discovery`
+`knot-git` covers `git-operations` and `worktree-management`. `repo-discovery`
 is the next slice: a self-contained capability with a complete spec, no GUI and
 no MCP. It backs `list-repos` and the repo picker, so it is a prerequisite for
 the agent-launch and MCP-tools work later.
 
 ## What Changes
 
-- Add a new crate `skwad-discovery` implementing
+- Add a new crate `knot-discovery` implementing
   `openspec/specs/repo-discovery/spec.md`:
   - `scan(base: &Path) -> Vec<RepoInfo>` — pure `std::fs` scan of the base
     folder's immediate children. A child with a `.git` directory is a
@@ -26,7 +26,7 @@ the agent-launch and MCP-tools work later.
 - Add `notify` (FS watching) and `tokio` to workspace dependencies; the new
   crate depends on both plus `thiserror`.
 - Constants (debounce duration, `.git` / `HEAD` / `gitdir:` / `ref:` literals)
-  in `skwad-discovery/src/consts.rs`.
+  in `knot-discovery/src/consts.rs`.
 - Unit tests for `scan` against temp trees (clone + linked worktree grouping,
   detached HEAD, prefix stripping, ordering); integration tests for the
   debounced coordinator (missing path yields empty and no watch; rapid
@@ -56,9 +56,9 @@ change adds the implementation. `skip_specs: true`.
 
 ## Impact
 
-- New: `crates/skwad-discovery/` (`src/lib.rs`, `src/consts.rs`, `src/error.rs`,
+- New: `crates/knot-discovery/` (`src/lib.rs`, `src/consts.rs`, `src/error.rs`,
   `src/scan.rs`, `src/discovery.rs`, `tests/`).
 - Modified: root `Cargo.toml` (workspace members + `notify`, `tokio` deps),
   `Cargo.lock`.
 - Dependencies added: `notify`, `tokio` (workspace).
-- `skwad-git`, `skwad-core`, `skwad`, and the Swift build are unaffected.
+- `knot-git`, `knot-core`, `knot`, and the Swift build are unaffected.
