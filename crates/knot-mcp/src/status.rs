@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use serde::Serialize;
 use knot_agents::Agent;
+use serde::Serialize;
 use uuid::Uuid;
 
 /// One entry in the `GET /api/v1/agent/status` response.

@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde_json::{Value, json};
 use knot_agents::{Agent, AgentState};
 use knot_mcp::{
     AgentHookHandler, DEFAULT_PORT, EmptyCatalog, HookRequest, McpServer, ToolCallResult,
     ToolCatalog, ToolDefinition, ToolInputSchema,
 };
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 fn no_agents() -> Arc<dyn Fn() -> Vec<Agent> + Send + Sync> {

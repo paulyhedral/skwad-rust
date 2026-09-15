@@ -1,5 +1,5 @@
-use serde_json::Value;
 use knot_mcp::ToolCallResult;
+use serde_json::Value;
 
 fn missing(key: &str) -> ToolCallResult {
     ToolCallResult::error(format!("Missing required parameter: {key}"))
