@@ -85,6 +85,25 @@ mod native_font_panel {
     }
 }
 
+/// Opens the OS emoji/character picker (the same panel as Edit > Emoji &
+/// Symbols) so the user can pick an agent avatar from the full system
+/// catalog instead of a curated list. AppKit inserts the chosen character
+/// straight into whatever text field currently has keyboard focus, so the
+/// caller must focus its input first - no callback or polling needed.
+#[cfg(target_os = "macos")]
+mod native_character_picker {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSApplication;
+
+    /// No-op off the main thread.
+    pub fn open() {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        NSApplication::sharedApplication(mtm).orderFrontCharacterPalette(None);
+    }
+}
+
 /// Embedded UI font (SIL OFL licensed; see `assets/fonts/ADAMINA-LICENSE.txt`),
 /// so the app looks the same regardless of what's installed on the system.
 /// Adamina ships one weight only; the renderer synthesizes bold for
@@ -909,6 +928,10 @@ fn workspace_window_options(cx: &App) -> WindowOptions {
 
 fn agent_window_options(cx: &App) -> WindowOptions {
     WindowOptions {
+        titlebar: Some(gpui_kit::TitlebarOptions {
+            title: Some("New Agent".into()),
+            ..Default::default()
+        }),
         window_bounds: Some(WindowBounds::centered(size(px(520.), px(500.)), cx)),
         window_min_size: Some(size(px(460.), px(460.))),
         ..WindowOptions::default()
@@ -2536,15 +2559,16 @@ impl WorkspaceWindow {
             let name_input =
                 cx.new(|cx| InputState::new(window, cx).placeholder("Name (optional)"));
             let shell_command_input =
-                cx.new(|cx| InputState::new(window, cx).placeholder("Shell command"));
+                cx.new(|cx| InputState::new(window, cx).placeholder("Shell command (optional)"));
+            let avatar_input = cx.new(|cx| InputState::new(window, cx).default_value("🤖"));
             let view = cx.new(|_| AgentEditor {
                 store,
                 settings,
                 workspace_id,
                 name_input,
                 shell_command_input,
+                avatar_input,
                 folder_path: String::new(),
-                avatar: "🤖".to_string(),
                 agent_type: "claude".to_string(),
                 persona_id: None,
                 error: None,
@@ -2560,8 +2584,8 @@ struct AgentEditor {
     workspace_id: Uuid,
     name_input: Entity<InputState>,
     shell_command_input: Entity<InputState>,
+    avatar_input: Entity<InputState>,
     folder_path: String,
-    avatar: String,
     agent_type: String,
     persona_id: Option<Uuid>,
     error: Option<String>,
@@ -2576,7 +2600,7 @@ impl AgentEditor {
             return;
         }
         let name = self.name_input.read(cx).value().trim().to_string();
-        let avatar = self.avatar.clone();
+        let avatar = self.avatar_input.read(cx).value().trim().to_string();
         let agent_type = self.agent_type.clone();
         let shell_command = self.shell_command_input.read(cx).value().trim().to_string();
         {
@@ -2625,6 +2649,31 @@ impl AgentEditor {
         })
         .detach();
     }
+
+    /// Focuses the avatar field, then opens the OS character picker - it
+    /// inserts the chosen character into whatever field has keyboard focus.
+    fn choose_avatar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.avatar_input.update(cx, |input, cx| {
+            input.focus(window, cx);
+        });
+        #[cfg(target_os = "macos")]
+        native_character_picker::open();
+    }
+}
+
+impl AgentEditor {
+    /// Fixed label column width for this dialog's rows, wide enough that
+    /// "Coding agent" never wraps.
+    const LABEL_WIDTH: f32 = 120.;
+
+    fn label(text: &'static str) -> gpui_kit::Div {
+        div()
+            .w(px(Self::LABEL_WIDTH))
+            .flex_shrink_0()
+            .text_right()
+            .whitespace_nowrap()
+            .child(text)
+    }
 }
 
 impl Render for AgentEditor {
@@ -2636,144 +2685,118 @@ impl Render for AgentEditor {
             .gap_3()
             .p_5()
             .bg(cx.theme().background)
-            .child(div().text_xl().child("New Agent"))
             .child(
                 div()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .child("add a new agent to your knot"),
+                    .child("Add a new agent to your knot."),
             )
             .child(
                 h_flex()
                     .gap_2()
-                    .child(div().w(px(100.)).text_right().child("Name"))
+                    .child(Self::label("Name"))
                     .child(Input::new(&self.name_input).flex_1())
+                    .child(Input::new(&self.avatar_input).w(px(48.)))
                     .child(
-                        Button::new("agent-avatar-picker")
-                            .label(self.avatar.clone())
-                            .tooltip("Choose avatar")
-                            .dropdown_menu({
-                                let editor = editor.clone();
-                                move |menu, _, _| {
-                                    menu.item(PopupMenuItem::new("🤖 Robot").on_click({
-                                        let editor = editor.clone();
-                                        move |_, _, app| {
-                                            editor.update(app, |e, _| e.avatar = "🤖".to_string())
-                                        }
-                                    }))
-                                    .item(PopupMenuItem::new("🧠 Brain").on_click({
-                                        let editor = editor.clone();
-                                        move |_, _, app| {
-                                            editor.update(app, |e, _| e.avatar = "🧠".to_string())
-                                        }
-                                    }))
-                                    .item(
-                                        PopupMenuItem::new("💻 Computer").on_click({
-                                            let editor = editor.clone();
-                                            move |_, _, app| {
-                                                editor
-                                                    .update(app, |e, _| e.avatar = "💻".to_string())
-                                            }
-                                        }),
-                                    )
-                                }
-                            }),
+                        SettingsWindow::icon_button(
+                            "agent-avatar-picker",
+                            "icons/smile.svg",
+                            "Choose character…",
+                            false,
+                        )
+                        .on_click(
+                            cx.listener(|editor, _, window, cx| editor.choose_avatar(window, cx)),
+                        ),
                     ),
             )
             .child(
-                h_flex()
-                    .gap_2()
-                    .child(div().w(px(100.)).text_right().child("Coding agent"))
-                    .child(
-                        Button::new("agent-type-picker")
-                            .label(self.agent_type.clone())
-                            .dropdown_menu({
-                                let editor = editor.clone();
-                                move |menu, _, _| {
-                                    menu.item(PopupMenuItem::new("Claude").on_click({
-                                        let editor = editor.clone();
-                                        move |_, _, app| {
-                                            editor.update(app, |e, _| {
-                                                e.agent_type = "claude".to_string()
-                                            })
-                                        }
-                                    }))
-                                    .item(PopupMenuItem::new("Codex").on_click({
-                                        let editor = editor.clone();
-                                        move |_, _, app| {
-                                            editor.update(app, |e, _| {
-                                                e.agent_type = "codex".to_string()
-                                            })
-                                        }
-                                    }))
-                                    .item(
-                                        PopupMenuItem::new("Shell").on_click({
-                                            let editor = editor.clone();
-                                            move |_, _, app| {
-                                                editor.update(app, |e, _| {
-                                                    e.agent_type = "shell".to_string()
-                                                })
-                                            }
-                                        }),
-                                    )
-                                }
-                            }),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .gap_2()
-                    .child(div().w(px(100.)).text_right().child("Command"))
-                    .child(Input::new(&self.shell_command_input).flex_1()),
-            )
-            .child(
-                h_flex()
-                    .gap_2()
-                    .child(div().w(px(100.)).text_right().child("Persona"))
-                    .child(
-                        Button::new("agent-persona-picker")
-                            .label(
-                                self.persona_id
-                                    .and_then(|id| {
-                                        personas.iter().find(|p| p.id == id).map(|p| p.name.clone())
-                                    })
-                                    .unwrap_or_else(|| "None".to_string()),
-                            )
-                            .flex_1()
-                            .dropdown_menu({
-                                let editor = editor.clone();
-                                move |mut menu, _, _| {
-                                    menu = menu.item(PopupMenuItem::new("None").on_click({
-                                        let editor = editor.clone();
-                                        move |_, _, app| {
-                                            editor.update(app, |e, _| e.persona_id = None)
-                                        }
-                                    }));
-                                    for persona in &personas {
-                                        let id = persona.id;
-                                        menu = menu.item(
-                                            PopupMenuItem::new(persona.name.clone()).on_click({
-                                                let editor = editor.clone();
-                                                move |_, _, app| {
-                                                    editor
-                                                        .update(app, |e, _| e.persona_id = Some(id))
-                                                }
-                                            }),
-                                        );
+                h_flex().gap_2().child(Self::label("Coding agent")).child(
+                    Button::new("agent-type-picker")
+                        .label(SettingsWindow::agent_type_label(&self.agent_type))
+                        .dropdown_caret(true)
+                        .dropdown_menu({
+                            let editor = editor.clone();
+                            move |menu, _, _| {
+                                menu.item(PopupMenuItem::new("Claude").on_click({
+                                    let editor = editor.clone();
+                                    move |_, _, app| {
+                                        editor
+                                            .update(app, |e, _| e.agent_type = "claude".to_string())
                                     }
-                                    menu
+                                }))
+                                .item(PopupMenuItem::new("Codex").on_click({
+                                    let editor = editor.clone();
+                                    move |_, _, app| {
+                                        editor
+                                            .update(app, |e, _| e.agent_type = "codex".to_string())
+                                    }
+                                }))
+                                .item(
+                                    PopupMenuItem::new("Shell").on_click({
+                                        let editor = editor.clone();
+                                        move |_, _, app| {
+                                            editor.update(app, |e, _| {
+                                                e.agent_type = "shell".to_string()
+                                            })
+                                        }
+                                    }),
+                                )
+                            }
+                        }),
+                ),
+            )
+            .child(
+                h_flex().gap_2().child(Self::label("Command")).child(
+                    Input::new(&self.shell_command_input)
+                        .flex_1()
+                        .font_family(cx.theme().mono_font_family.clone()),
+                ),
+            )
+            .child(
+                h_flex().gap_2().child(Self::label("Persona")).child(
+                    Button::new("agent-persona-picker")
+                        .label(
+                            self.persona_id
+                                .and_then(|id| {
+                                    personas.iter().find(|p| p.id == id).map(|p| p.name.clone())
+                                })
+                                .unwrap_or_else(|| "None".to_string()),
+                        )
+                        .flex_1()
+                        .dropdown_caret(true)
+                        .dropdown_menu({
+                            let editor = editor.clone();
+                            move |mut menu, _, _| {
+                                menu = menu.item(PopupMenuItem::new("None").on_click({
+                                    let editor = editor.clone();
+                                    move |_, _, app| editor.update(app, |e, _| e.persona_id = None)
+                                }));
+                                for persona in &personas {
+                                    let id = persona.id;
+                                    menu = menu.item(
+                                        PopupMenuItem::new(persona.name.clone()).on_click({
+                                            let editor = editor.clone();
+                                            move |_, _, app| {
+                                                editor.update(app, |e, _| e.persona_id = Some(id))
+                                            }
+                                        }),
+                                    );
                                 }
-                            }),
-                    ),
+                                menu
+                            }
+                        }),
+                ),
             )
             .child(
                 h_flex()
                     .gap_2()
-                    .child(div().w(px(100.)).text_right().child("Folder"))
+                    .child(Self::label("Folder"))
                     .child(
                         div()
                             .flex_1()
+                            .min_w_0()
                             .text_sm()
+                            .whitespace_normal()
                             .text_color(cx.theme().muted_foreground)
                             .child(if self.folder_path.is_empty() {
                                 "No folder selected".to_string()
@@ -2782,9 +2805,13 @@ impl Render for AgentEditor {
                             }),
                     )
                     .child(
-                        Button::new("choose-agent-folder")
-                            .label("Choose...")
-                            .on_click(cx.listener(|editor, _, _, cx| editor.choose_folder(cx))),
+                        SettingsWindow::icon_button(
+                            "choose-agent-folder",
+                            "icons/folder-open.svg",
+                            "Choose folder…",
+                            false,
+                        )
+                        .on_click(cx.listener(|editor, _, _, cx| editor.choose_folder(cx))),
                     ),
             )
             .children(
@@ -2792,8 +2819,10 @@ impl Render for AgentEditor {
                     .as_ref()
                     .map(|error| div().text_sm().child(error.clone())),
             )
+            .child(div().flex_1())
             .child(
                 h_flex()
+                    .flex_shrink_0()
                     .justify_end()
                     .gap_2()
                     .child(
