@@ -97,9 +97,9 @@ pub fn create_worktree_path(repo_path: &str, branch_name: &str) -> Result<PathBu
 mod tests {
     use std::path::PathBuf;
 
-    use serde_json::json;
     use knot_discovery::WorktreeInfo;
     use knot_git::Runner;
+    use serde_json::json;
 
     use super::*;
 

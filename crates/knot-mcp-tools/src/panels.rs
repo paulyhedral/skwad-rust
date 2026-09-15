@@ -65,8 +65,8 @@ pub fn view_mermaid(store: &mut AgentStore, arguments: &serde_json::Value) -> To
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
     use knot_agents::CreateOptions;
+    use serde_json::json;
 
     use super::*;
 

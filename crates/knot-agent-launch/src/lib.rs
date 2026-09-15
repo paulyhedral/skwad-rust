@@ -17,6 +17,6 @@ pub use capabilities::{
 pub use command::{LaunchRequest, build_agent_command, build_initialization_command};
 pub use escape::{persona_prompt, shell_escape};
 pub use registration::{
-    inline_registration_arguments, mcp_arguments, registration_prompt, registration_user_prompt,
-    knot_instructions,
+    inline_registration_arguments, knot_instructions, mcp_arguments, registration_prompt,
+    registration_user_prompt,
 };

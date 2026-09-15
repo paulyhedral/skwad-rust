@@ -853,12 +853,14 @@ fn open_settings_window(
                 .default_value(initial_options)
         });
         let view = cx.new(|cx| {
-            let agent_options_subscription =
-                cx.subscribe(&agent_options_input, |this: &mut SettingsWindow, _, event, cx| {
+            let agent_options_subscription = cx.subscribe(
+                &agent_options_input,
+                |this: &mut SettingsWindow, _, event, cx| {
                     if matches!(event, InputEvent::Change) {
                         this.save_agent_options(cx);
                     }
-                });
+                },
+            );
             SettingsWindow {
                 settings,
                 selected_tab: SettingsTab::General,
@@ -1263,16 +1265,22 @@ impl SettingsWindow {
                                                 ("Copilot", "copilot"),
                                                 ("Shell", "shell"),
                                             ] {
-                                                menu = menu.item(PopupMenuItem::new(label).on_click({
-                                                    let settings_window = settings_window.clone();
-                                                    move |_, window, app| {
-                                                        settings_window.update(app, |view, cx| {
-                                                            view.select_agent_type(
-                                                                value, window, cx,
-                                                            );
-                                                        })
-                                                    }
-                                                }));
+                                                menu = menu.item(
+                                                    PopupMenuItem::new(label).on_click({
+                                                        let settings_window =
+                                                            settings_window.clone();
+                                                        move |_, window, app| {
+                                                            settings_window.update(
+                                                                app,
+                                                                |view, cx| {
+                                                                    view.select_agent_type(
+                                                                        value, window, cx,
+                                                                    );
+                                                                },
+                                                            )
+                                                        }
+                                                    }),
+                                                );
                                             }
                                             menu
                                         }

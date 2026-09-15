@@ -117,9 +117,9 @@ fn rfc3339(time: std::time::SystemTime) -> String {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
     use knot_agents::CreateOptions;
     use knot_messaging::NoopNotifier;
+    use serde_json::json;
 
     use super::*;
 
