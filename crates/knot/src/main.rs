@@ -32,28 +32,28 @@ const OUTPUT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const CHECK_INBOX_PROMPT: &str = "Check your inbox for questions or instructions from other agents. Update your status and immediately execute what is being asked without confirmation.";
 type AwaitingInputQueue = Arc<Mutex<Vec<(Uuid, Option<String>)>>>;
 
-/// Embedded UI font (SIL OFL licensed; see `assets/fonts/INTER-LICENSE.txt`),
+/// Embedded UI font (SIL OFL licensed; see `assets/fonts/MANROPE-LICENSE.txt`),
 /// so the app looks the same regardless of what's installed on the system.
-const INTER_REGULAR: &[u8] = include_bytes!("../assets/fonts/Inter-Regular.ttf");
-const INTER_MEDIUM: &[u8] = include_bytes!("../assets/fonts/Inter-Medium.ttf");
-const INTER_SEMIBOLD: &[u8] = include_bytes!("../assets/fonts/Inter-SemiBold.ttf");
-const INTER_BOLD: &[u8] = include_bytes!("../assets/fonts/Inter-Bold.ttf");
+const MANROPE_REGULAR: &[u8] = include_bytes!("../assets/fonts/Manrope-Regular.ttf");
+const MANROPE_MEDIUM: &[u8] = include_bytes!("../assets/fonts/Manrope-Medium.ttf");
+const MANROPE_SEMIBOLD: &[u8] = include_bytes!("../assets/fonts/Manrope-SemiBold.ttf");
+const MANROPE_BOLD: &[u8] = include_bytes!("../assets/fonts/Manrope-Bold.ttf");
 
-/// Registers the embedded Inter family and sets it as the UI font, plus a
+/// Registers the embedded Manrope family and sets it as the UI font, plus a
 /// distinct accent color, so the app doesn't rely on the platform's generic
 /// UI font and neutral-gray default theme.
 fn apply_visual_identity(cx: &mut App) {
     if let Err(error) = cx.text_system().add_fonts(vec![
-        std::borrow::Cow::Borrowed(INTER_REGULAR),
-        std::borrow::Cow::Borrowed(INTER_MEDIUM),
-        std::borrow::Cow::Borrowed(INTER_SEMIBOLD),
-        std::borrow::Cow::Borrowed(INTER_BOLD),
+        std::borrow::Cow::Borrowed(MANROPE_REGULAR),
+        std::borrow::Cow::Borrowed(MANROPE_MEDIUM),
+        std::borrow::Cow::Borrowed(MANROPE_SEMIBOLD),
+        std::borrow::Cow::Borrowed(MANROPE_BOLD),
     ]) {
-        eprintln!("failed to register Inter font: {error}");
+        eprintln!("failed to register Manrope font: {error}");
     }
 
     let theme = cx.global_mut::<Theme>();
-    theme.font_family = "Inter".into();
+    theme.font_family = "Manrope".into();
     let accent: gpui_kit::Hsla = rgb(0x3B82F6).into();
     let accent_hover: gpui_kit::Hsla = rgb(0x2563EB).into();
     let accent_active: gpui_kit::Hsla = rgb(0x1D4ED8).into();
@@ -867,8 +867,8 @@ fn agent_window_options(cx: &App) -> WindowOptions {
 
 fn settings_window_options(cx: &App) -> WindowOptions {
     WindowOptions {
-        window_bounds: Some(WindowBounds::centered(size(px(520.), px(460.)), cx)),
-        window_min_size: Some(size(px(460.), px(400.))),
+        window_bounds: Some(WindowBounds::centered(size(px(620.), px(560.)), cx)),
+        window_min_size: Some(size(px(480.), px(420.))),
         ..WindowOptions::default()
     }
 }
@@ -1334,7 +1334,7 @@ impl SettingsWindow {
         let appearance_label = Self::appearance_label(&self.settings.appearance_mode);
 
         v_flex()
-            .gap_4()
+            .gap_3()
             .child(div().text_xl().child("General"))
             .child(
                 v_flex()
@@ -1490,7 +1490,7 @@ impl SettingsWindow {
         let agent_type_label = Self::agent_type_label(&self.selected_agent_type);
 
         v_flex()
-            .gap_4()
+            .gap_3()
             .child(div().text_xl().child("Coding"))
             .child(
                 v_flex()
@@ -1653,7 +1653,7 @@ impl SettingsWindow {
         };
 
         v_flex()
-            .gap_4()
+            .gap_3()
             .child(div().text_xl().child("Personas"))
             .child(
                 h_flex()
@@ -1711,7 +1711,7 @@ impl SettingsWindow {
         let is_custom_action = autopilot_action == "custom";
 
         v_flex()
-            .gap_4()
+            .gap_3()
             .child(div().text_xl().child("Autopilot"))
             .child(
                 v_flex()
@@ -1871,7 +1871,7 @@ impl SettingsWindow {
         let key_name = Self::key_name_for_code(self.settings.voice_push_to_talk_key);
 
         v_flex()
-            .gap_4()
+            .gap_3()
             .child(div().text_xl().child("Voice"))
             .child(
                 div()
@@ -1982,7 +1982,7 @@ impl SettingsWindow {
         let install_command = Self::mcp_install_command(&self.mcp_selected_agent_type, &server_url);
 
         v_flex()
-            .gap_4()
+            .gap_3()
             .child(div().text_xl().child("MCP"))
             .child(
                 div()
@@ -2105,7 +2105,7 @@ impl SettingsWindow {
         let terminal_font_name = self.settings.terminal_font_name.clone();
 
         v_flex()
-            .gap_4()
+            .gap_3()
             .child(div().text_xl().child("Terminal"))
             .child(
                 v_flex()
@@ -2285,11 +2285,17 @@ impl Render for SettingsWindow {
 
         v_flex()
             .size_full()
-            .gap_4()
-            .p_5()
+            .gap_3()
+            .p_4()
             .bg(cx.theme().background)
             .child(self.render_tab_strip(cx))
-            .child(body)
+            .child(
+                div()
+                    .id("settings-body")
+                    .flex_1()
+                    .overflow_y_scroll()
+                    .child(body),
+            )
     }
 }
 
