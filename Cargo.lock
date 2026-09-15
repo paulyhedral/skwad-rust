@@ -6666,6 +6666,7 @@ dependencies = [
  "skwad-agents",
  "skwad-core",
  "skwad-discovery",
+ "skwad-history",
  "skwad-mcp",
  "skwad-mcp-tools",
  "skwad-messaging",

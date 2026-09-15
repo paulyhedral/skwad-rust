@@ -68,6 +68,8 @@ pub struct SavedAgent {
     pub shell_command: Option<String>,
     #[serde(default)]
     pub persona_id: Option<Uuid>,
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 impl SavedAgent {
@@ -93,6 +95,7 @@ impl SavedAgent {
             is_companion: false,
             shell_command: None,
             persona_id: None,
+            session_id: None,
         }
     }
 }
@@ -233,6 +236,16 @@ mod tests {
         assert_eq!(agent.created_by, None);
         assert!(!agent.is_companion);
         assert_eq!(agent.persona_id, None);
+        assert_eq!(agent.session_id, None);
+    }
+
+    #[test]
+    fn saved_agent_session_id_round_trips() {
+        let mut a = SavedAgent::new(id(), "A", None, "/tmp");
+        a.session_id = Some("s7".to_string());
+        let json = serde_json::to_string(&a).unwrap();
+        let back: SavedAgent = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.session_id, Some("s7".to_string()));
     }
 
     #[test]

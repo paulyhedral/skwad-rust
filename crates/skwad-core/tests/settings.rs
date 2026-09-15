@@ -17,6 +17,7 @@ fn loads_swift_shaped_document() {
 
     assert_eq!(s.appearance_mode, "dark");
     assert!(!s.restore_layout_on_launch);
+    assert!(!s.restore_conversation_on_launch);
     assert!(s.keep_in_menu_bar);
     assert!(!s.mcp_server_enabled);
     assert_eq!(s.mcp_server_port, 9123);

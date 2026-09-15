@@ -198,15 +198,38 @@ fn stale_session_ids(session_ids: &[Uuid], live_ids: &BTreeSet<Uuid>) -> Vec<Uui
 /// Builds the agent store from persisted layout when
 /// `restore_layout_on_launch` is set, otherwise starts empty. Shared between
 /// the GPUI shell and the MCP catalog so both render the same data.
+///
+/// When `restore_conversation_on_launch` is also set, resolves each restored
+/// agent's resume-session id: its own persisted session id when present (an
+/// exact restore), otherwise the most recent session for its `(folder,
+/// agent type)` via the `skwad-history` provider registry.
 fn build_agent_store(settings: &skwad_core::Settings) -> skwad_agents::AgentStore {
-    if settings.restore_layout_on_launch {
-        skwad_agents::AgentStore::from_saved(
-            &settings.saved_agents,
-            settings.saved_workspaces.clone(),
-        )
-    } else {
-        skwad_agents::AgentStore::new()
+    if !settings.restore_layout_on_launch {
+        return skwad_agents::AgentStore::new();
     }
+
+    let mut store = skwad_agents::AgentStore::from_saved(
+        &settings.saved_agents,
+        settings.saved_workspaces.clone(),
+    );
+
+    if settings.restore_conversation_on_launch {
+        let persisted: BTreeMap<Uuid, String> = settings
+            .saved_agents
+            .iter()
+            .filter_map(|agent| agent.session_id.clone().map(|sid| (agent.id, sid)))
+            .collect();
+        store.resolve_resume_sessions(&persisted, |folder, agent_type| {
+            let provider = skwad_history::provider(agent_type)?;
+            provider
+                .load_sessions(folder)
+                .into_iter()
+                .next()
+                .map(|session| session.id)
+        });
+    }
+
+    store
 }
 
 fn agent_selection_for_workspace(
@@ -485,7 +508,8 @@ impl Shell {
             self.agent_error = Some("Agent store is unavailable.".to_string());
             return;
         };
-        self.settings.saved_agents = store.saved_agents();
+        self.settings.saved_agents =
+            store.saved_agents(self.settings.restore_conversation_on_launch);
         self.settings.saved_workspaces = store.saved_workspaces();
         if let Err(error) = self.settings.persist() {
             self.agent_error = Some(format!("Could not save agent: {error}"));
@@ -828,7 +852,8 @@ impl WorkspaceWindow {
             )
         };
         if let Ok(store) = self.store.lock() {
-            self.settings.saved_agents = store.saved_agents();
+            self.settings.saved_agents =
+                store.saved_agents(self.settings.restore_conversation_on_launch);
             self.settings.saved_workspaces = store.saved_workspaces();
         }
         let _ = self.settings.persist();
@@ -911,7 +936,8 @@ impl AgentEditor {
                     ..Default::default()
                 },
             );
-            self.settings.saved_agents = store.saved_agents();
+            self.settings.saved_agents =
+                store.saved_agents(self.settings.restore_conversation_on_launch);
             self.settings.saved_workspaces = store.saved_workspaces();
         }
         let _ = self.settings.persist();
@@ -1300,7 +1326,8 @@ impl WorkspaceManager {
             self.error = Some("Agent store is unavailable.".to_string());
             return;
         };
-        self.settings.saved_agents = store.saved_agents();
+        self.settings.saved_agents =
+            store.saved_agents(self.settings.restore_conversation_on_launch);
         self.settings.saved_workspaces = store.saved_workspaces();
         if let Err(error) = self.settings.persist() {
             self.error = Some(format!("Could not save workspace: {error}"));
@@ -2722,6 +2749,39 @@ mod tests {
     }
 
     #[test]
+    fn build_agent_store_restores_exact_session_id_when_conversation_enabled() {
+        let agent_id = Uuid::new_v4();
+        let mut saved = skwad_core::SavedAgent::new(agent_id, "alpha", None, "~/alpha");
+        saved.session_id = Some("s7".to_string());
+
+        let mut settings = skwad_core::Settings::default();
+        settings.restore_layout_on_launch = true;
+        settings.restore_conversation_on_launch = true;
+        settings.saved_agents = vec![saved];
+
+        let store = build_agent_store(&settings);
+        let agent = store.agent(agent_id).unwrap();
+        assert_eq!(agent.resume_session_id.as_deref(), Some("s7"));
+        assert!(agent.session_id.is_none());
+    }
+
+    #[test]
+    fn build_agent_store_leaves_resume_session_unset_when_conversation_disabled() {
+        let agent_id = Uuid::new_v4();
+        let mut saved = skwad_core::SavedAgent::new(agent_id, "alpha", None, "~/alpha");
+        saved.session_id = Some("s7".to_string());
+
+        let mut settings = skwad_core::Settings::default();
+        settings.restore_layout_on_launch = true;
+        settings.restore_conversation_on_launch = false;
+        settings.saved_agents = vec![saved];
+
+        let store = build_agent_store(&settings);
+        let agent = store.agent(agent_id).unwrap();
+        assert!(agent.resume_session_id.is_none());
+    }
+
+    #[test]
     fn build_agent_store_starts_empty_when_restore_disabled() {
         let mut settings = skwad_core::Settings::default();
         settings.restore_layout_on_launch = false;
@@ -2748,7 +2808,8 @@ mod tests {
 
         let mut saved = store.saved_workspaces()[0].clone();
         saved.active_agent_ids = vec![Uuid::new_v4(), second];
-        let restored = skwad_agents::AgentStore::from_saved(&store.saved_agents(), vec![saved]);
+        let restored =
+            skwad_agents::AgentStore::from_saved(&store.saved_agents(false), vec![saved]);
 
         assert_eq!(initial_agent_selection(&restored), Some(second));
         assert_ne!(initial_agent_selection(&restored), Some(first));

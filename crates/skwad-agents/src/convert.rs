@@ -42,7 +42,10 @@ pub fn from_saved(saved: &SavedAgent) -> Agent {
 }
 
 /// Extract the durable subset of a runtime agent for persistence.
-pub fn to_saved(agent: &Agent) -> SavedAgent {
+/// `remember_conversation` gates session id: only carried into the saved
+/// record when true (`restore-conversation-on-launch` enabled), otherwise
+/// always persisted as `None` regardless of the agent's runtime session id.
+pub fn to_saved(agent: &Agent, remember_conversation: bool) -> SavedAgent {
     SavedAgent {
         id: agent.id,
         name: agent.name.clone(),
@@ -53,6 +56,9 @@ pub fn to_saved(agent: &Agent) -> SavedAgent {
         is_companion: agent.is_companion,
         shell_command: agent.shell_command.clone(),
         persona_id: agent.persona_id,
+        session_id: remember_conversation
+            .then(|| agent.session_id.clone())
+            .flatten(),
     }
 }
 
@@ -84,9 +90,19 @@ mod tests {
         let saved = saved_agent();
 
         let agent = from_saved(&saved);
-        let back = to_saved(&agent);
+        let back = to_saved(&agent, false);
 
         assert_eq!(saved, back);
+    }
+
+    #[test]
+    fn to_saved_carries_session_id_only_when_remembering() {
+        let saved = saved_agent();
+        let mut agent = from_saved(&saved);
+        agent.session_id = Some("s7".to_string());
+
+        assert_eq!(to_saved(&agent, true).session_id, Some("s7".to_string()));
+        assert_eq!(to_saved(&agent, false).session_id, None);
     }
 
     #[test]
