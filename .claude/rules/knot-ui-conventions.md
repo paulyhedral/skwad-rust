@@ -36,10 +36,14 @@ and dialogs; follow them for any new pane, dialog, or window in `crates/knot`.
   overflows its container instead of wrapping.
 - Native pickers/panels over in-app equivalents where the OS provides one
   (e.g. `NSFontManager`/`NSFontPanel` for font choice, folder pickers via
-  `cx.prompt_for_paths`). When bridging an AppKit callback that doesn't fire
-  reliably (e.g. `changeFont:` can be intercepted by AppKit's own responder
-  chain), poll the relevant `NSFontManager`/AppKit property directly instead
-  of relying on the target/action message.
+  `cx.prompt_for_paths`, `NSApplication.orderFrontCharacterPalette` for an
+  emoji/character picker - not a curated list of a handful of options).
+  When bridging an AppKit callback that doesn't fire reliably (e.g.
+  `changeFont:` can be intercepted by AppKit's own responder chain), poll
+  the relevant `NSFontManager`/AppKit property directly instead of relying
+  on the target/action message. `orderFrontCharacterPalette` needs no such
+  bridging - it inserts the chosen character straight into whatever text
+  field has keyboard focus, so just focus the target `InputState` first.
 - Dialog windows: put the window's purpose in the OS titlebar (`TitlebarOptions.title`),
   not as an in-body heading. Autofocus the first meaningful input on open
   (`InputState::focus`/`TextareaState::focus`). Anchor action buttons to the
