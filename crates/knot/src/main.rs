@@ -872,6 +872,10 @@ const SETTINGS_WINDOW_WIDTH: gpui_kit::Pixels = px(620.);
 
 fn settings_window_options(cx: &App) -> WindowOptions {
     WindowOptions {
+        titlebar: Some(gpui_kit::TitlebarOptions {
+            title: Some("Settings".into()),
+            ..Default::default()
+        }),
         window_bounds: Some(WindowBounds::centered(
             size(
                 SETTINGS_WINDOW_WIDTH,
@@ -1079,6 +1083,31 @@ impl SettingsWindow {
             .child(control)
     }
 
+    /// Muted description text lined up under a row's *control* column,
+    /// not spanning the full card width - it explains the control above
+    /// it, not the section as a whole.
+    fn hint(cx: &Context<Self>, text: &'static str) -> impl IntoElement {
+        h_flex()
+            .gap_3()
+            .child(div().w(px(Self::LABEL_WIDTH)))
+            .child(
+                div()
+                    .flex_1()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(text),
+            )
+    }
+
+    /// Renders `text` in the theme's monospace font, for values that are
+    /// literally code/commands/identifiers (install commands, model names).
+    fn mono_text(cx: &Context<Self>, text: impl Into<gpui_kit::SharedString>) -> gpui_kit::Div {
+        div()
+            .text_sm()
+            .font_family(cx.theme().mono_font_family.clone())
+            .child(text.into())
+    }
+
     /// A small icon-only action button with a tooltip, used for utility
     /// actions (choose/clear/add/edit/delete/copy) instead of a text label -
     /// text buttons read as arbitrary activators, an icon reads as what it
@@ -1089,12 +1118,14 @@ impl SettingsWindow {
         tooltip: &'static str,
         danger: bool,
     ) -> Button {
-        let button = Button::new(id)
-            .icon(Icon::default().path(icon_path))
-            .tooltip(tooltip)
-            .ghost()
-            .small();
-        if danger { button.danger() } else { button }
+        let mut icon = Icon::default().path(icon_path);
+        if danger {
+            // `.ghost()` and `.danger()` are both button *variants* - only one
+            // can apply, and ghost (no background) is what we want here - so
+            // tint the icon itself red instead of switching variants.
+            icon = icon.text_color(rgb(0xEF4444));
+        }
+        Button::new(id).icon(icon).tooltip(tooltip).ghost().small()
     }
 
     fn appearance_label(mode: &str) -> &'static str {
@@ -1355,13 +1386,13 @@ impl SettingsWindow {
     /// within the cap instead (see `render` below).
     fn pane_target_height(tab: SettingsTab) -> gpui_kit::Pixels {
         match tab {
-            SettingsTab::General => px(430.),
-            SettingsTab::Coding => px(380.),
+            SettingsTab::General => px(500.),
+            SettingsTab::Coding => px(420.),
             SettingsTab::Personas => px(640.),
-            SettingsTab::Autopilot => px(560.),
-            SettingsTab::Voice => px(420.),
-            SettingsTab::Mcp => px(480.),
-            SettingsTab::Terminal => px(340.),
+            SettingsTab::Autopilot => px(620.),
+            SettingsTab::Voice => px(480.),
+            SettingsTab::Mcp => px(540.),
+            SettingsTab::Terminal => px(380.),
         }
     }
 
@@ -1427,12 +1458,10 @@ impl SettingsWindow {
                                 }
                             }),
                     ))
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("Derives color scheme from terminal background color."),
-                    ),
+                    .child(Self::hint(
+                        cx,
+                        "Derives color scheme from terminal background color.",
+                    )),
             )
             .child(
                 Self::group("Startup")
@@ -1551,10 +1580,23 @@ impl SettingsWindow {
                                     )
                                     .on_click({
                                         let settings_window = settings_window.clone();
-                                        move |_, _, app| {
-                                            settings_window.update(app, |view, cx| {
-                                                view.clear_source_folder(cx);
-                                            })
+                                        move |_, window, app| {
+                                            let settings_window = settings_window.clone();
+                                            window.open_alert_dialog(app, move |alert, _, _| {
+                                                let settings_window = settings_window.clone();
+                                                alert
+                                                    .title("Clear Source Folder")
+                                                    .description(
+                                                        "The source folder path will be cleared.",
+                                                    )
+                                                    .confirm()
+                                                    .on_ok(move |_, _, app| {
+                                                        settings_window.update(app, |view, cx| {
+                                                            view.clear_source_folder(cx);
+                                                        });
+                                                        true
+                                                    })
+                                            });
                                         }
                                     }),
                                 ),
@@ -1609,74 +1651,97 @@ impl SettingsWindow {
             .cloned()
             .collect();
 
-        let list = if personas.is_empty() {
-            div()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child("No personas defined.")
-                .into_any_element()
-        } else {
-            v_flex()
-                .gap_3()
-                .children(personas.into_iter().enumerate().map(|(index, persona)| {
-                    let id = persona.id;
-                    let preview = Self::persona_preview(&persona.instructions, 80);
-                    h_flex()
-                        .justify_between()
-                        .gap_2()
-                        .child(
-                            v_flex()
-                                .flex_1()
-                                .child(div().child(persona.name.clone()))
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(preview),
-                                ),
-                        )
-                        .child(
-                            h_flex()
-                                .gap_1()
-                                .child(
-                                    Self::icon_button(
-                                        ("persona-edit", index),
-                                        "icons/pencil.svg",
-                                        "Edit persona",
-                                        false,
+        let list =
+            if personas.is_empty() {
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("No personas defined.")
+                    .into_any_element()
+            } else {
+                v_flex()
+                    .gap_3()
+                    .children(personas.into_iter().enumerate().map(|(index, persona)| {
+                        let id = persona.id;
+                        let preview = Self::persona_preview(&persona.instructions, 80);
+                        h_flex()
+                            .justify_between()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(div().child(persona.name.clone()))
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(preview),
+                                    ),
+                            )
+                            .child(
+                                h_flex()
+                                    .flex_shrink_0()
+                                    .gap_1()
+                                    .child(
+                                        Self::icon_button(
+                                            ("persona-edit", index),
+                                            "icons/pencil.svg",
+                                            "Edit persona",
+                                            false,
+                                        )
+                                        .on_click({
+                                            let parent = settings_window.downgrade();
+                                            let persona = persona.clone();
+                                            move |_, _, app| {
+                                                open_persona_editor(
+                                                    parent.clone(),
+                                                    Some(persona.clone()),
+                                                    app,
+                                                );
+                                            }
+                                        }),
                                     )
-                                    .on_click({
-                                        let parent = settings_window.downgrade();
-                                        let persona = persona.clone();
-                                        move |_, _, app| {
-                                            open_persona_editor(
-                                                parent.clone(),
-                                                Some(persona.clone()),
-                                                app,
-                                            );
-                                        }
-                                    }),
-                                )
-                                .child(
-                                    Self::icon_button(
-                                        ("persona-delete", index),
-                                        "icons/trash.svg",
-                                        "Delete persona",
-                                        true,
-                                    )
-                                    .on_click({
-                                        let settings_window = settings_window.clone();
-                                        move |_, _, app| {
-                                            settings_window.update(app, |view, cx| {
-                                                view.delete_persona(id, cx);
-                                            })
-                                        }
-                                    }),
-                                ),
-                        )
-                }))
-                .into_any_element()
-        };
+                                    .child(
+                                        Self::icon_button(
+                                            ("persona-delete", index),
+                                            "icons/trash.svg",
+                                            "Delete persona",
+                                            true,
+                                        )
+                                        .on_click({
+                                            let settings_window = settings_window.clone();
+                                            let name = persona.name.clone();
+                                            move |_, window, app| {
+                                                let settings_window = settings_window.clone();
+                                                window.open_alert_dialog(app, {
+                                                    let name = name.clone();
+                                                    move |alert, _, _| {
+                                                        let settings_window =
+                                                            settings_window.clone();
+                                                        alert
+                                                        .title("Delete Persona")
+                                                        .description(format!(
+                                                            "This permanently deletes \"{name}\". \
+                                                             This can't be undone."
+                                                        ))
+                                                        .confirm()
+                                                        .on_ok(move |_, _, app| {
+                                                            settings_window.update(app, |view, cx| {
+                                                                view.delete_persona(id, cx);
+                                                            });
+                                                            true
+                                                        })
+                                                    }
+                                                });
+                                            }
+                                        }),
+                                    ),
+                            )
+                    }))
+                    .into_any_element()
+            };
 
         v_flex().gap_3().child(
             Self::group("Personas")
@@ -1758,15 +1823,11 @@ impl SettingsWindow {
                                 }
                             }),
                     ))
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(
-                                "Automatically detect when agents need input and take action — \
-                                 no need to babysit your agents. Only available with Claude Code.",
-                            ),
-                    ),
+                    .child(Self::hint(
+                        cx,
+                        "Automatically detect when agents need input and take action — no need \
+                         to babysit your agents. Only available with Claude Code.",
+                    )),
             )
             .child(
                 Self::group("AI Provider")
@@ -1803,10 +1864,7 @@ impl SettingsWindow {
                     ))
                     .child(Self::row(
                         "Model",
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(model_name),
+                        Self::mono_text(cx, model_name).text_color(cx.theme().muted_foreground),
                     )),
             )
             .child(
@@ -1847,10 +1905,7 @@ impl SettingsWindow {
                         .into_any_element()
                     }))
                     .children((!is_custom_action).then(|| {
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(Self::autopilot_action_description(&autopilot_action))
+                        Self::hint(cx, Self::autopilot_action_description(&autopilot_action))
                             .into_any_element()
                     })),
             )
@@ -1896,14 +1951,10 @@ impl SettingsWindow {
                             .label("Apple SpeechAnalyzer")
                             .disabled(true),
                     ))
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(
-                                "Uses on-device speech recognition. No data is sent to the cloud.",
-                            ),
-                    ),
+                    .child(Self::hint(
+                        cx,
+                        "Uses on-device speech recognition. No data is sent to the cloud.",
+                    )),
             )
             .child(
                 Self::group("Input")
@@ -1931,17 +1982,15 @@ impl SettingsWindow {
                                 }
                             }),
                     ))
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(if voice_auto_insert {
-                                "Transcribed text will be automatically inserted into the terminal."
-                            } else {
-                                "Transcribed text will be shown in a popup for review before \
-                                 insertion."
-                            }),
-                    ),
+                    .child(Self::hint(
+                        cx,
+                        if voice_auto_insert {
+                            "Transcribed text will be automatically inserted into the terminal."
+                        } else {
+                            "Transcribed text will be shown in a popup for review before \
+                             insertion."
+                        },
+                    )),
             )
     }
 
@@ -2029,16 +2078,11 @@ impl SettingsWindow {
                             .flex_1()
                             .gap_2()
                             .items_center()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .text_sm()
-                                    .child(if install_command.is_empty() {
-                                        "No manual setup needed.".to_string()
-                                    } else {
-                                        install_command.clone()
-                                    }),
-                            )
+                            .child(if install_command.is_empty() {
+                                div().flex_1().text_sm().child("No manual setup needed.")
+                            } else {
+                                Self::mono_text(cx, install_command.clone()).flex_1()
+                            })
                             .child(
                                 Self::icon_button(
                                     "mcp-copy-install-command",
