@@ -88,4 +88,4 @@ See [AGENTS.md](AGENTS.md) for development conventions and crate dependencies.
 
 AGPL-3.0, see [LICENSE](LICENSE) for details.
 
-Copyright (C) 2026 Kochava Studios
+Copyright &copy; 2026 Kochava Studios
