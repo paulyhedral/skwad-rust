@@ -15,9 +15,9 @@ use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::*;
 use gpui_kit::{
-    AnyWindowHandle, App, AppContext, AsyncApp, ClickEvent, Context, Entity, InteractiveElement,
-    IntoElement, KeyBinding, Menu, MenuItem, ParentElement, PathPromptOptions, Render,
-    StatefulInteractiveElement, Styled, Subscription, SystemMenuType, SystemNotification,
+    AnyWindowHandle, App, AppContext, AsyncApp, ClickEvent, ClipboardItem, Context, Entity,
+    InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement, PathPromptOptions,
+    Render, StatefulInteractiveElement, Styled, Subscription, SystemMenuType, SystemNotification,
     SystemNotificationResponse, WeakEntity, Window, WindowBounds, WindowOptions, actions, div, px,
     size,
 };
@@ -862,6 +862,11 @@ fn open_settings_window(
                 .placeholder("Custom prompt")
                 .default_value(settings.autopilot_custom_prompt.clone())
         });
+        let mcp_port_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Port")
+                .default_value(settings.mcp_server_port.to_string())
+        });
         let view = cx.new(|cx| {
             let agent_options_subscription = cx.subscribe(
                 &agent_options_input,
@@ -887,16 +892,27 @@ fn open_settings_window(
                     }
                 },
             );
+            let mcp_port_subscription = cx.subscribe(
+                &mcp_port_input,
+                |this: &mut SettingsWindow, _, event, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        this.save_mcp_port(cx);
+                    }
+                },
+            );
             SettingsWindow {
                 settings,
                 selected_tab: SettingsTab::General,
                 selected_agent_type,
+                mcp_selected_agent_type: "claude".to_string(),
                 agent_options_input,
                 ai_api_key_input,
                 autopilot_custom_prompt_input,
+                mcp_port_input,
                 _agent_options_subscription: agent_options_subscription,
                 _ai_api_key_subscription: ai_api_key_subscription,
                 _autopilot_custom_prompt_subscription: autopilot_custom_prompt_subscription,
+                _mcp_port_subscription: mcp_port_subscription,
             }
         });
         cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
@@ -945,12 +961,15 @@ struct SettingsWindow {
     settings: knot_core::Settings,
     selected_tab: SettingsTab,
     selected_agent_type: String,
+    mcp_selected_agent_type: String,
     agent_options_input: Entity<InputState>,
     ai_api_key_input: Entity<InputState>,
     autopilot_custom_prompt_input: Entity<InputState>,
+    mcp_port_input: Entity<InputState>,
     _agent_options_subscription: Subscription,
     _ai_api_key_subscription: Subscription,
     _autopilot_custom_prompt_subscription: Subscription,
+    _mcp_port_subscription: Subscription,
 }
 
 impl SettingsWindow {
@@ -1127,6 +1146,36 @@ impl SettingsWindow {
             _ => return format!("Key {code}"),
         }
         .to_string()
+    }
+
+    fn mcp_server_url(port: u16) -> String {
+        format!("http://127.0.0.1:{port}")
+    }
+
+    /// The command to copy for registering `agent_type` against Knot's MCP
+    /// server, ported from the Swift reference's
+    /// `MCPCommandView.mcpCommandCopy` (Skwad -> Knot renamed).
+    fn mcp_install_command(agent_type: &str, url: &str) -> String {
+        match agent_type {
+            "claude" => format!("claude mcp add --transport http --scope user knot {url}"),
+            "codex" => format!("codex mcp add knot --url {url}"),
+            "opencode" => "opencode mcp add".to_string(),
+            "gemini" => format!("gemini mcp add --transport http knot {url} --scope user"),
+            _ => String::new(),
+        }
+    }
+
+    fn save_mcp_port(&mut self, cx: &mut Context<Self>) {
+        let value = self.mcp_port_input.read(cx).value().to_string();
+        if let Ok(port) = value.parse::<u16>() {
+            self.settings.mcp_server_port = port;
+            self.persist();
+        }
+    }
+
+    fn select_mcp_agent_type(&mut self, agent_type: &str, cx: &mut Context<Self>) {
+        self.mcp_selected_agent_type = agent_type.to_string();
+        cx.notify();
     }
 
     /// Truncates `instructions` to `max_chars`, appending an ellipsis when
@@ -1829,6 +1878,132 @@ impl SettingsWindow {
                     ),
             )
     }
+
+    fn render_mcp(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let settings_window = cx.entity();
+        let mcp_server_enabled = self.settings.mcp_server_enabled;
+        let server_url = Self::mcp_server_url(self.settings.mcp_server_port);
+        let agent_type_label = Self::agent_type_label(&self.mcp_selected_agent_type);
+        let install_command = Self::mcp_install_command(&self.mcp_selected_agent_type, &server_url);
+
+        v_flex()
+            .gap_4()
+            .child(div().text_xl().child("MCP"))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(
+                        "Knot runs a local MCP server so coding agents can coordinate with each \
+                     other and control the app.",
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(Self::section("Server Settings"))
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("Enable MCP server"))
+                            .child(
+                                Switch::new("mcp-server-enabled")
+                                    .checked(mcp_server_enabled)
+                                    .on_click({
+                                        let settings_window = settings_window.clone();
+                                        move |checked, _, app| {
+                                            let checked = *checked;
+                                            settings_window.update(app, |view, _| {
+                                                view.settings.mcp_server_enabled = checked;
+                                                view.persist();
+                                            })
+                                        }
+                                    }),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("Port"))
+                            .child(Input::new(&self.mcp_port_input).w(px(100.))),
+                    )
+                    .child(
+                        h_flex().justify_between().child(div().child("URL")).child(
+                            div()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(server_url.clone()),
+                        ),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(Self::section("Installation Command"))
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new("mcp-agent-type-picker")
+                                    .label(agent_type_label)
+                                    .dropdown_menu({
+                                        let settings_window = settings_window.clone();
+                                        move |menu, _, _| {
+                                            let mut menu = menu;
+                                            for (label, value) in [
+                                                ("Claude", "claude"),
+                                                ("Codex", "codex"),
+                                                ("OpenCode", "opencode"),
+                                                ("Gemini", "gemini"),
+                                                ("Copilot", "copilot"),
+                                            ] {
+                                                menu = menu.item(
+                                                    PopupMenuItem::new(label).on_click({
+                                                        let settings_window =
+                                                            settings_window.clone();
+                                                        move |_, _, app| {
+                                                            settings_window.update(
+                                                                app,
+                                                                |view, cx| {
+                                                                    view.select_mcp_agent_type(
+                                                                        value, cx,
+                                                                    );
+                                                                },
+                                                            )
+                                                        }
+                                                    }),
+                                                );
+                                            }
+                                            menu
+                                        }
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_sm()
+                                    .child(if install_command.is_empty() {
+                                        "No manual setup needed.".to_string()
+                                    } else {
+                                        install_command.clone()
+                                    }),
+                            )
+                            .child(
+                                Button::new("mcp-copy-install-command")
+                                    .label("Copy")
+                                    .on_click({
+                                        move |_, _, app| {
+                                            if !install_command.is_empty() {
+                                                app.write_to_clipboard(ClipboardItem::new_string(
+                                                    install_command.clone(),
+                                                ));
+                                            }
+                                        }
+                                    }),
+                            ),
+                    ),
+            )
+    }
 }
 
 fn persona_editor_window_options(cx: &App) -> WindowOptions {
@@ -1966,7 +2141,7 @@ impl Render for SettingsWindow {
             SettingsTab::Personas => self.render_personas(cx).into_any_element(),
             SettingsTab::Autopilot => self.render_autopilot(cx).into_any_element(),
             SettingsTab::Voice => self.render_voice(cx).into_any_element(),
-            SettingsTab::Mcp => Self::render_placeholder("MCP", cx).into_any_element(),
+            SettingsTab::Mcp => self.render_mcp(cx).into_any_element(),
             SettingsTab::Terminal => Self::render_placeholder("Terminal", cx).into_any_element(),
         };
 
@@ -4198,6 +4373,40 @@ mod tests {
     #[test]
     fn key_name_for_code_falls_back_for_unknown_codes() {
         assert_eq!(SettingsWindow::key_name_for_code(999), "Key 999");
+    }
+
+    #[test]
+    fn mcp_server_url_formats_localhost_with_port() {
+        assert_eq!(
+            SettingsWindow::mcp_server_url(8766),
+            "http://127.0.0.1:8766"
+        );
+        assert_eq!(
+            SettingsWindow::mcp_server_url(9000),
+            "http://127.0.0.1:9000"
+        );
+    }
+
+    #[test]
+    fn mcp_install_command_matches_swift_reference_per_agent() {
+        let url = "http://127.0.0.1:8766";
+        assert_eq!(
+            SettingsWindow::mcp_install_command("claude", url),
+            "claude mcp add --transport http --scope user knot http://127.0.0.1:8766"
+        );
+        assert_eq!(
+            SettingsWindow::mcp_install_command("codex", url),
+            "codex mcp add knot --url http://127.0.0.1:8766"
+        );
+        assert_eq!(
+            SettingsWindow::mcp_install_command("opencode", url),
+            "opencode mcp add"
+        );
+        assert_eq!(
+            SettingsWindow::mcp_install_command("gemini", url),
+            "gemini mcp add --transport http knot http://127.0.0.1:8766 --scope user"
+        );
+        assert_eq!(SettingsWindow::mcp_install_command("copilot", url), "");
     }
 
     #[test]
