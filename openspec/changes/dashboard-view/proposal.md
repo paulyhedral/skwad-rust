@@ -16,9 +16,15 @@ new feature: the Swift view exists and is in active use.
   stats via the existing `knot-git` numstat parsing), a per-workspace status
   summary (counts by state), a manual/name/status sort picker, and an
   "Add Agent" tile per workspace that opens the existing `AgentEditor`
-  dialog. Reachable both as a global view (all attached workspaces) and
-  scoped to a single workspace (matching the Swift reference's dual use from
-  the main window and from a detached workspace window).
+  dialog. Two entry points, matching the Swift reference's dual use:
+  - **Workspace-scoped**: an in-place view inside `WorkspaceWindow`, toggled
+    with the agent terminal view the same way the Swift reference swaps
+    `DashboardView`/terminal content inside `DetachedWorkspaceView` - not a
+    separate window.
+  - **Global ("Command Center")**: all attached workspaces, its own window
+    (matching the Swift reference's main-window overlay, ported here as a
+    window rather than an overlay since `Shell` has no view-switching
+    infrastructure to build on - see `design.md`).
 - Add an inert "Dashboard" launcher button now (icon + tooltip, no
   wiring) so the affordance exists in the UI ahead of the real
   implementation - this lands in this session, the rest of this proposal's
@@ -53,10 +59,13 @@ nothing when clicked).
 ## Impact
 
 - New spec under `openspec/specs/dashboard/`.
-- `crates/knot/src/main.rs`: new `DashboardWindow` (or view, pending the
-  design decision on window vs. in-place view - see `design.md`), reusing
-  `AgentEditor` for the add-agent flow and `state_color`/`state_label`
-  already added for the workspace agent list row.
+- `crates/knot/src/main.rs`:
+  - `WorkspaceWindow` gains a view-mode field (terminal vs. dashboard) and
+    a shared dashboard-grid render function used in-place, reusing
+    `AgentEditor` for the add-agent flow and `state_color`/`state_label`
+    already added for the workspace agent list row.
+  - A new `CommandCenterWindow` (global, all attached workspaces) reuses
+    the same dashboard-grid render function.
 - `knot-git`: no schema changes: `DiffStats`/`parse_numstat` already exist
   and are reused as-is; this change is the first UI consumer.
 - `knot-agents`: `Workspace.color_hex` already exists and is reused as-is
