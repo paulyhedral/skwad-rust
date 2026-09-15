@@ -4,7 +4,7 @@
 
 # Knot
 
-Knot is a desktop app for running and coordinating multiple AI coding agents. Each agent gets its own terminal session, workspace, status, and MCP connection.
+Knot is a desktop app for running and tying together multiple AI coding agents. Each agent gets its own terminal session, workspace, status, and MCP connection.
 
 This repository is moving Knot from its original Swift/macOS implementation to a cross-platform Rust application built with [GPUI-Kit](https://github.com/longbridge/gpui-kit). The Swift app remains in the repository as the behavioral reference while the Rust port is developed crate by crate.
 
