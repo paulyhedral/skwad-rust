@@ -34,6 +34,98 @@ const OUTPUT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const CHECK_INBOX_PROMPT: &str = "Check your inbox for questions or instructions from other agents. Update your status and immediately execute what is being asked without confirmation.";
 type AwaitingInputQueue = Arc<Mutex<Vec<(Uuid, Option<String>)>>>;
 
+/// Drives the real macOS font panel (`NSFontPanel`) for the terminal font
+/// picker, since the user wants the system chooser rather than an in-app
+/// dropdown. AppKit reports the choice via a `changeFont:` action message,
+/// which we stash in a static and poll from GPUI (see [`poll_selection`]).
+#[cfg(target_os = "macos")]
+mod native_font_panel {
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2::{AllocAnyThread, MainThreadMarker, define_class, msg_send, sel};
+    use objc2_app_kit::{NSFont, NSFontManager};
+    use objc2_foundation::{NSObject, NSObjectProtocol, NSString};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Mutex, OnceLock};
+
+    static GENERATION: AtomicU64 = AtomicU64::new(0);
+    static SELECTED_FAMILY: Mutex<Option<String>> = Mutex::new(None);
+
+    struct MainThreadOnly<T>(T);
+    // SAFETY: only ever constructed and read from the main thread, guarded
+    // by `MainThreadMarker` at every call site below.
+    unsafe impl<T> Send for MainThreadOnly<T> {}
+    unsafe impl<T> Sync for MainThreadOnly<T> {}
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[name = "KnotFontPanelTarget"]
+        struct FontPanelTarget;
+
+        unsafe impl NSObjectProtocol for FontPanelTarget {}
+
+        impl FontPanelTarget {
+            #[unsafe(method(changeFont:))]
+            fn change_font(&self, sender: &AnyObject) {
+                let Some(mtm) = MainThreadMarker::new() else {
+                    return;
+                };
+                let manager = unsafe { std::mem::transmute::<&AnyObject, &NSFontManager>(sender) };
+                let Some(current) = NSFontManager::sharedFontManager(mtm).selectedFont() else {
+                    return;
+                };
+                let converted = manager.convertFont(&current);
+                if let Some(family) = converted.familyName() {
+                    *SELECTED_FAMILY.lock().unwrap() = Some(family.to_string());
+                    GENERATION.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        }
+    );
+
+    fn shared_target() -> &'static FontPanelTarget {
+        static TARGET: OnceLock<MainThreadOnly<Retained<FontPanelTarget>>> = OnceLock::new();
+        &TARGET
+            .get_or_init(|| {
+                let target: Retained<FontPanelTarget> =
+                    unsafe { msg_send![FontPanelTarget::alloc(), init] };
+                MainThreadOnly(target)
+            })
+            .0
+    }
+
+    /// Opens the system font panel pre-selected to `current_family`. No-op
+    /// off the main thread.
+    pub fn open(current_family: &str) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let manager = NSFontManager::sharedFontManager(mtm);
+        if let Some(font) = NSFont::fontWithName_size(&NSString::from_str(current_family), 13.0) {
+            manager.setSelectedFont_isMultiple(&font, false);
+        }
+        let target = shared_target();
+        unsafe {
+            manager.setTarget(Some(target));
+            manager.setAction(sel!(changeFont:));
+        }
+        if let Some(panel) = manager.fontPanel(true) {
+            panel.makeKeyAndOrderFront(None);
+        }
+    }
+
+    /// Returns the newly chosen family name if the panel reported a change
+    /// since `last_seen` was last updated, bumping `last_seen` either way.
+    pub fn poll_selection(last_seen: &mut u64) -> Option<String> {
+        let current = GENERATION.load(Ordering::SeqCst);
+        if current == *last_seen {
+            return None;
+        }
+        *last_seen = current;
+        SELECTED_FAMILY.lock().unwrap().clone()
+    }
+}
+
 /// Embedded UI font (SIL OFL licensed; see `assets/fonts/ADAMINA-LICENSE.txt`),
 /// so the app looks the same regardless of what's installed on the system.
 /// Adamina ships one weight only; the renderer synthesizes bold for
@@ -989,6 +1081,28 @@ fn open_settings_window(
                 _terminal_font_size_subscription: terminal_font_size_subscription,
             }
         });
+        #[cfg(target_os = "macos")]
+        {
+            let settings_window = view.clone();
+            cx.spawn(async move |cx| {
+                let mut last_seen = 0u64;
+                loop {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(300))
+                        .await;
+                    if let Some(family) = native_font_panel::poll_selection(&mut last_seen) {
+                        cx.update(|app| {
+                            settings_window.update(app, |view, cx| {
+                                view.settings.terminal_font_name = family;
+                                view.persist();
+                                cx.notify();
+                            });
+                        });
+                    }
+                }
+            })
+            .detach();
+        }
         cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
     }) {
         Ok(window) => *handle.borrow_mut() = Some(window.into()),
@@ -1076,7 +1190,30 @@ impl SettingsWindow {
         h_flex()
             .gap_3()
             .items_center()
-            .child(div().w(px(Self::LABEL_WIDTH)).text_right().child(label))
+            .child(
+                div()
+                    .w(px(Self::LABEL_WIDTH))
+                    .flex_shrink_0()
+                    .text_right()
+                    .child(label),
+            )
+            .child(control)
+    }
+
+    /// Like `row`, but baseline-aligned instead of center-aligned - for rows
+    /// whose control is itself text (a read-only value, not a switch/button/
+    /// input), so the value's text baseline lines up with the label's.
+    fn text_row(label: &'static str, control: impl IntoElement) -> impl IntoElement {
+        h_flex()
+            .gap_3()
+            .items_baseline()
+            .child(
+                div()
+                    .w(px(Self::LABEL_WIDTH))
+                    .flex_shrink_0()
+                    .text_right()
+                    .child(label),
+            )
             .child(control)
     }
 
@@ -1086,11 +1223,13 @@ impl SettingsWindow {
     fn hint(cx: &Context<Self>, text: &'static str) -> impl IntoElement {
         h_flex()
             .gap_3()
-            .child(div().w(px(Self::LABEL_WIDTH)))
+            .child(div().w(px(Self::LABEL_WIDTH)).flex_shrink_0())
             .child(
                 div()
                     .flex_1()
+                    .min_w_0()
                     .text_sm()
+                    .whitespace_normal()
                     .text_color(cx.theme().muted_foreground)
                     .child(text),
             )
@@ -1383,12 +1522,12 @@ impl SettingsWindow {
     /// within the cap instead (see `render` below).
     fn pane_target_height(tab: SettingsTab) -> gpui_kit::Pixels {
         match tab {
-            SettingsTab::General => px(500.),
-            SettingsTab::Coding => px(420.),
-            SettingsTab::Personas => px(640.),
-            SettingsTab::Autopilot => px(620.),
-            SettingsTab::Voice => px(480.),
-            SettingsTab::Mcp => px(540.),
+            SettingsTab::General => px(560.),
+            SettingsTab::Coding => px(440.),
+            SettingsTab::Personas => px(600.),
+            SettingsTab::Autopilot => px(660.),
+            SettingsTab::Voice => px(520.),
+            SettingsTab::Mcp => px(600.),
             SettingsTab::Terminal => px(380.),
         }
     }
@@ -1739,6 +1878,14 @@ impl SettingsWindow {
                     }))
                     .into_any_element()
             };
+        // Bounded so the list scrolls in place instead of pushing the group's
+        // title/action row (which must stay visible) off the top of the
+        // window - same cap philosophy as the window's own per-pane height.
+        let list = div()
+            .id("personas-list")
+            .max_h(px(420.))
+            .overflow_y_scroll()
+            .child(list);
 
         v_flex().gap_3().child(
             Self::group("Personas")
@@ -1760,31 +1907,35 @@ impl SettingsWindow {
                             }),
                         )
                         .child(
-                            Button::new("personas-restore-defaults")
-                                .label("Restore Defaults")
-                                .on_click({
+                            Self::icon_button(
+                                "personas-restore-defaults",
+                                "icons/rotate-ccw.svg",
+                                "Restore Defaults",
+                                false,
+                            )
+                            .on_click({
+                                let settings_window = settings_window.clone();
+                                move |_, window, app| {
                                     let settings_window = settings_window.clone();
-                                    move |_, window, app| {
+                                    window.open_alert_dialog(app, move |alert, _, _| {
                                         let settings_window = settings_window.clone();
-                                        window.open_alert_dialog(app, move |alert, _, _| {
-                                            let settings_window = settings_window.clone();
-                                            alert
-                                                .title("Restore Defaults")
-                                                .description(
-                                                    "Resets built-in personas to their \
+                                        alert
+                                            .title("Restore Defaults")
+                                            .description(
+                                                "Resets built-in personas to their \
                                                      original name and instructions. \
                                                      Personas you created are not affected.",
-                                                )
-                                                .confirm()
-                                                .on_ok(move |_, _, app| {
-                                                    settings_window.update(app, |view, cx| {
-                                                        view.restore_default_personas(cx);
-                                                    });
-                                                    true
-                                                })
-                                        });
-                                    }
-                                }),
+                                            )
+                                            .confirm()
+                                            .on_ok(move |_, _, app| {
+                                                settings_window.update(app, |view, cx| {
+                                                    view.restore_default_personas(cx);
+                                                });
+                                                true
+                                            })
+                                    });
+                                }
+                            }),
                         ),
                 )
                 .child(list),
@@ -1857,9 +2008,11 @@ impl SettingsWindow {
                     ))
                     .child(Self::row(
                         "API Key",
-                        Input::new(&self.ai_api_key_input).flex_1(),
+                        Input::new(&self.ai_api_key_input)
+                            .font_family(cx.theme().mono_font_family.clone())
+                            .flex_1(),
                     ))
-                    .child(Self::row(
+                    .child(Self::text_row(
                         "Model",
                         Self::mono_text(cx, model_name).text_color(cx.theme().muted_foreground),
                     )),
@@ -2030,7 +2183,7 @@ impl SettingsWindow {
                         "Port",
                         Input::new(&self.mcp_port_input).w(px(100.)),
                     ))
-                    .child(Self::row(
+                    .child(Self::text_row(
                         "URL",
                         h_flex()
                             .gap_2()
@@ -2088,7 +2241,7 @@ impl SettingsWindow {
                                 }
                             }),
                     ))
-                    .child(Self::row(
+                    .child(Self::text_row(
                         "Command",
                         h_flex()
                             .flex_1()
@@ -2127,8 +2280,7 @@ impl SettingsWindow {
             )
     }
 
-    fn render_terminal(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let settings_window = cx.entity();
+    fn render_terminal(&self, _cx: &mut Context<Self>) -> impl IntoElement {
         let terminal_font_name = self.settings.terminal_font_name.clone();
 
         v_flex().gap_3().child(
@@ -2137,23 +2289,11 @@ impl SettingsWindow {
                     "Font",
                     Button::new("terminal-font-picker")
                         .label(terminal_font_name.clone())
-                        .dropdown_caret(true)
-                        .dropdown_menu({
-                            let settings_window = settings_window.clone();
-                            move |menu, _, _| {
-                                let mut menu = menu;
-                                for font in Self::TERMINAL_FONTS {
-                                    menu = menu.item(PopupMenuItem::new(font).on_click({
-                                        let settings_window = settings_window.clone();
-                                        move |_, _, app| {
-                                            settings_window.update(app, |view, cx| {
-                                                view.select_terminal_font(font, cx);
-                                            })
-                                        }
-                                    }));
-                                }
-                                menu
-                            }
+                        .on_click(move |_, _, _| {
+                            // Opens the OS font panel (NSFontPanel); the choice
+                            // comes back asynchronously via `poll_selection`.
+                            #[cfg(target_os = "macos")]
+                            native_font_panel::open(&terminal_font_name);
                         }),
                 ))
                 .child(Self::row(
