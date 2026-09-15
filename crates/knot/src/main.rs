@@ -2700,7 +2700,7 @@ impl Render for AgentEditor {
                     .child(
                         SettingsWindow::icon_button(
                             "agent-avatar-picker",
-                            "icons/smile.svg",
+                            "icons/face-grinning.svg",
                             "Choose character…",
                             false,
                         )
