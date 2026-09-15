@@ -38,6 +38,13 @@ fn loads_swift_shaped_document() {
     assert_eq!(s.terminal_font_name, "Menlo");
     assert_eq!(s.terminal_font_size, 12.5);
 
+    // Fixture predates the autopilot scalars; decode-tolerant defaults apply.
+    assert!(!s.autopilot_enabled);
+    assert_eq!(s.ai_provider, "openai");
+    assert_eq!(s.ai_api_key, "");
+    assert_eq!(s.autopilot_action, "mark");
+    assert_eq!(s.autopilot_custom_prompt, "");
+
     assert_eq!(s.saved_agents.len(), 1);
     let agent = &s.saved_agents[0];
     assert_eq!(agent.name, "Builder");
@@ -85,6 +92,11 @@ fn reserializes_with_swift_keys() {
         "mcpServerPort",
         "sourceBaseFolderInitialized",
         "terminalFontName",
+        "autopilotEnabled",
+        "aiProvider",
+        "aiApiKey",
+        "autopilotAction",
+        "autopilotCustomPrompt",
         "savedAgents",
         "savedWorkspaces",
         "benchAgents",
