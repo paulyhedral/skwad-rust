@@ -66,6 +66,16 @@
       revisit once a settings view lands. The scalar is fully wired and
       testable via `Settings` directly in the meantime.
 
+      UI reference for when it does land: `images/screenshots/settings-general.png`
+      (General pane, "Startup" section) and the Swift source it was taken
+      from, `Skwad/Views/Settings/GeneralSettingsView.swift`, which has
+      `Toggle("Restore agents on launch", isOn: $settings.restoreLayoutOnLaunch)`
+      immediately above `Toggle("Keep running in menu bar when closed", ...)`
+      in that section. The Swift app has no equivalent toggle for this
+      feature yet (it's new, per GitHub #60) — but the new toggle belongs in
+      that same Startup section, directly below "Restore agents on launch",
+      to match the reference app's layout once ported.
+
 ## 6. Final verification
 
 - [x] 6.1 Run `make rust` (fmt + clippy + test + build) and confirm it passes
