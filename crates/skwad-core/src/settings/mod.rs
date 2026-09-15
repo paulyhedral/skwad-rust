@@ -40,6 +40,7 @@ use crate::error::{Error, Result};
 pub struct Settings {
     pub appearance_mode: String,
     pub restore_layout_on_launch: bool,
+    pub restore_conversation_on_launch: bool,
     pub keep_in_menu_bar: bool,
     pub mcp_server_enabled: bool,
     pub mcp_server_port: u16,
@@ -75,6 +76,7 @@ impl Default for Settings {
         Self {
             appearance_mode: APPEARANCE_MODE_DEFAULT.to_string(),
             restore_layout_on_launch: true,
+            restore_conversation_on_launch: false,
             keep_in_menu_bar: false,
             mcp_server_enabled: true,
             mcp_server_port: MCP_PORT_DEFAULT,
@@ -363,7 +365,18 @@ mod tests {
         assert_eq!(s.mcp_server_port, 8766);
         assert_eq!(s.terminal_font_name, "SF Mono");
         assert!(s.restore_layout_on_launch);
+        assert!(!s.restore_conversation_on_launch);
         assert!(s.mcp_server_enabled);
+    }
+
+    #[test]
+    fn legacy_settings_blob_defaults_restore_conversation_off() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(&path, r#"{"restoreLayoutOnLaunch":true}"#).unwrap();
+        let s = Settings::load_from(&path).unwrap();
+        assert!(s.restore_layout_on_launch);
+        assert!(!s.restore_conversation_on_launch);
     }
 
     #[test]

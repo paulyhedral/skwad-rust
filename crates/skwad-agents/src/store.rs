@@ -84,8 +84,13 @@ impl AgentStore {
         &self.agents
     }
 
-    pub fn saved_agents(&self) -> Vec<SavedAgent> {
-        self.agents.iter().map(crate::convert::to_saved).collect()
+    /// `remember_conversation` gates whether each agent's session id is
+    /// carried into its saved record (`restore-conversation-on-launch`).
+    pub fn saved_agents(&self, remember_conversation: bool) -> Vec<SavedAgent> {
+        self.agents
+            .iter()
+            .map(|agent| crate::convert::to_saved(agent, remember_conversation))
+            .collect()
     }
 
     pub fn workspaces(&self) -> &[Workspace] {
@@ -116,6 +121,31 @@ impl AgentStore {
     pub fn set_session_id(&mut self, id: Uuid, session_id: String) {
         if let Some(agent) = self.agent_mut(id) {
             agent.session_id = Some(session_id);
+        }
+    }
+
+    /// Resolves resume-session id for every agent currently missing one
+    /// (`restore-conversation-on-launch`). Each agent's own persisted session
+    /// id (from `persisted`, keyed by agent id) wins when present — an exact
+    /// restore. Otherwise `resolver(folder, agent_type)` is consulted as a
+    /// best-effort fallback (typically a `skwad-history` provider lookup).
+    /// An agent whose resume-session id is already set (e.g. from a prior
+    /// call) is left untouched.
+    pub fn resolve_resume_sessions<F>(
+        &mut self,
+        persisted: &BTreeMap<Uuid, String>,
+        mut resolver: F,
+    ) where
+        F: FnMut(&str, &str) -> Option<String>,
+    {
+        for agent in &mut self.agents {
+            if agent.resume_session_id.is_some() {
+                continue;
+            }
+            agent.resume_session_id = persisted
+                .get(&agent.id)
+                .cloned()
+                .or_else(|| resolver(&agent.folder, &agent.agent_type));
         }
     }
 
@@ -1018,5 +1048,66 @@ mod tests {
         let agent = s.agent(id).unwrap();
         assert_eq!(agent.mermaid_source.as_deref(), Some("graph TD; A-->B;"));
         assert_eq!(agent.mermaid_title.as_deref(), Some("Flow"));
+    }
+
+    #[test]
+    fn resolve_resume_sessions_prefers_persisted_id_over_resolver() {
+        let saved = SavedAgent::new(Uuid::new_v4(), "proj", None, "/tmp/proj");
+        let id = saved.id;
+        let mut s = AgentStore::from_saved(&[saved], Vec::new());
+        let persisted = BTreeMap::from([(id, "s7".to_string())]);
+
+        s.resolve_resume_sessions(&persisted, |_, _| Some("s9".to_string()));
+
+        assert_eq!(
+            s.agent(id).unwrap().resume_session_id.as_deref(),
+            Some("s7")
+        );
+    }
+
+    #[test]
+    fn resolve_resume_sessions_falls_back_to_resolver_without_persisted_id() {
+        let saved = SavedAgent::new(Uuid::new_v4(), "proj", None, "/tmp/proj");
+        let id = saved.id;
+        let mut s = AgentStore::from_saved(&[saved], Vec::new());
+
+        s.resolve_resume_sessions(&BTreeMap::new(), |folder, agent_type| {
+            assert_eq!(folder, "/tmp/proj");
+            assert_eq!(agent_type, "claude");
+            Some("s9".to_string())
+        });
+
+        assert_eq!(
+            s.agent(id).unwrap().resume_session_id.as_deref(),
+            Some("s9")
+        );
+    }
+
+    #[test]
+    fn restart_clears_resolved_resume_session_id() {
+        let saved = SavedAgent::new(Uuid::new_v4(), "proj", None, "/tmp/proj");
+        let id = saved.id;
+        let mut s = AgentStore::from_saved(&[saved], Vec::new());
+        s.resolve_resume_sessions(&BTreeMap::from([(id, "s7".to_string())]), |_, _| None);
+        assert_eq!(
+            s.agent(id).unwrap().resume_session_id.as_deref(),
+            Some("s7")
+        );
+
+        s.restart(id).unwrap();
+
+        assert!(s.agent(id).unwrap().resume_session_id.is_none());
+        assert!(s.agent(id).unwrap().session_id.is_none());
+    }
+
+    #[test]
+    fn resolve_resume_sessions_leaves_unset_with_no_match() {
+        let saved = SavedAgent::new(Uuid::new_v4(), "proj", None, "/tmp/proj");
+        let id = saved.id;
+        let mut s = AgentStore::from_saved(&[saved], Vec::new());
+
+        s.resolve_resume_sessions(&BTreeMap::new(), |_, _| None);
+
+        assert!(s.agent(id).unwrap().resume_session_id.is_none());
     }
 }

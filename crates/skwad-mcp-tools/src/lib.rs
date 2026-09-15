@@ -102,7 +102,7 @@ impl McpToolCatalog {
         let Some(settings) = settings.as_mut() else {
             return Ok(());
         };
-        settings.saved_agents = agents.saved_agents();
+        settings.saved_agents = agents.saved_agents(settings.restore_conversation_on_launch);
         settings.saved_workspaces = agents.saved_workspaces();
         settings.persist().map_err(|error| error.to_string())
     }
