@@ -1007,6 +1007,31 @@ impl SettingsWindow {
             .insert(self.selected_agent_type.clone(), value);
         self.persist();
     }
+
+    /// Truncates `instructions` to `max_chars`, appending an ellipsis when
+    /// truncated so a persona list row stays a single line.
+    fn persona_preview(instructions: &str, max_chars: usize) -> String {
+        let truncated: String = instructions.chars().take(max_chars).collect();
+        if instructions.chars().count() > max_chars {
+            format!("{truncated}…")
+        } else {
+            truncated
+        }
+    }
+
+    fn delete_persona(&mut self, id: Uuid, cx: &mut Context<Self>) {
+        if let Err(error) = self.settings.remove_persona(id) {
+            eprintln!("failed to remove persona: {error}");
+        }
+        cx.notify();
+    }
+
+    fn restore_default_personas(&mut self, cx: &mut Context<Self>) {
+        if let Err(error) = self.settings.restore_default_personas() {
+            eprintln!("failed to restore default personas: {error}");
+        }
+        cx.notify();
+    }
 }
 
 impl SettingsWindow {
@@ -1287,6 +1312,248 @@ impl SettingsWindow {
                     ),
             )
     }
+
+    fn render_personas(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let settings_window = cx.entity();
+        let personas: Vec<knot_core::Persona> =
+            self.settings.active_personas().into_iter().cloned().collect();
+
+        let list = if personas.is_empty() {
+            div()
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child("No personas defined.")
+                .into_any_element()
+        } else {
+            v_flex()
+                .gap_3()
+                .children(personas.into_iter().enumerate().map(|(index, persona)| {
+                    let id = persona.id;
+                    let preview = Self::persona_preview(&persona.instructions, 80);
+                    h_flex()
+                        .justify_between()
+                        .gap_2()
+                        .child(
+                            v_flex().flex_1().child(div().child(persona.name.clone())).child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(preview),
+                            ),
+                        )
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .child(
+                                    Button::new(("persona-edit", index))
+                                        .label("Edit")
+                                        .on_click({
+                                            let parent = settings_window.downgrade();
+                                            let persona = persona.clone();
+                                            move |_, _, app| {
+                                                open_persona_editor(
+                                                    parent.clone(),
+                                                    Some(persona.clone()),
+                                                    app,
+                                                );
+                                            }
+                                        }),
+                                )
+                                .child(
+                                    Button::new(("persona-delete", index))
+                                        .label("Delete")
+                                        .on_click({
+                                            let settings_window = settings_window.clone();
+                                            move |_, _, app| {
+                                                settings_window.update(app, |view, cx| {
+                                                    view.delete_persona(id, cx);
+                                                })
+                                            }
+                                        }),
+                                ),
+                        )
+                }))
+                .into_any_element()
+        };
+
+        v_flex()
+            .gap_4()
+            .child(div().text_xl().child("Personas"))
+            .child(
+                h_flex()
+                    .justify_between()
+                    .child(Self::section("Personas"))
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new("personas-add")
+                                    .label("Add Persona…")
+                                    .on_click({
+                                        let parent = settings_window.downgrade();
+                                        move |_, _, app| {
+                                            open_persona_editor(parent.clone(), None, app);
+                                        }
+                                    }),
+                            )
+                            .child(
+                                Button::new("personas-restore-defaults")
+                                    .label("Restore Defaults")
+                                    .on_click({
+                                        let settings_window = settings_window.clone();
+                                        move |_, window, app| {
+                                            let settings_window = settings_window.clone();
+                                            window.open_alert_dialog(app, move |alert, _, _| {
+                                                let settings_window = settings_window.clone();
+                                                alert
+                                                    .title("Restore Defaults")
+                                                    .description(
+                                                        "Resets built-in personas to their \
+                                                         original name and instructions. \
+                                                         Personas you created are not affected.",
+                                                    )
+                                                    .confirm()
+                                                    .on_ok(move |_, _, app| {
+                                                        settings_window.update(app, |view, cx| {
+                                                            view.restore_default_personas(cx);
+                                                        });
+                                                        true
+                                                    })
+                                            });
+                                        }
+                                    }),
+                            ),
+                    ),
+            )
+            .child(list)
+    }
+}
+
+fn persona_editor_window_options(cx: &App) -> WindowOptions {
+    WindowOptions {
+        window_bounds: Some(WindowBounds::centered(size(px(460.), px(380.)), cx)),
+        window_min_size: Some(size(px(400.), px(320.))),
+        ..WindowOptions::default()
+    }
+}
+
+/// Opens the persona add/edit window. `persona` is `None` for "Add Persona…"
+/// and `Some` (fields pre-filled) for a row's edit button.
+fn open_persona_editor(
+    parent: WeakEntity<SettingsWindow>,
+    persona: Option<knot_core::Persona>,
+    cx: &mut App,
+) {
+    let editing_id = persona.as_ref().map(|p| p.id);
+    let name = persona.as_ref().map(|p| p.name.clone()).unwrap_or_default();
+    let instructions = persona
+        .as_ref()
+        .map(|p| p.instructions.clone())
+        .unwrap_or_default();
+    let options = persona_editor_window_options(cx);
+    let _ = cx.open_window(options, move |window, cx| {
+        let name_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Persona name")
+                .default_value(name)
+        });
+        let instructions_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Instructions")
+                .default_value(instructions)
+        });
+        let view = cx.new(|_| PersonaEditor {
+            parent,
+            editing_id,
+            name_input,
+            instructions_input,
+            error: None,
+        });
+        cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
+    });
+}
+
+struct PersonaEditor {
+    parent: WeakEntity<SettingsWindow>,
+    editing_id: Option<Uuid>,
+    name_input: Entity<InputState>,
+    instructions_input: Entity<InputState>,
+    error: Option<String>,
+}
+
+impl PersonaEditor {
+    fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self.name_input.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            self.error = Some("Enter a persona name.".to_string());
+            cx.notify();
+            return;
+        }
+        let instructions = self.instructions_input.read(cx).value().trim().to_string();
+        let Some(parent) = self.parent.upgrade() else {
+            window.remove_window();
+            return;
+        };
+        parent.update(cx, |view, view_cx| {
+            let result = match self.editing_id {
+                Some(id) => view.settings.update_persona(id, name, instructions),
+                None => view.settings.add_persona(name, instructions).map(|_| ()),
+            };
+            if let Err(error) = result {
+                eprintln!("failed to save persona: {error}");
+            }
+            view_cx.notify();
+        });
+        window.remove_window();
+    }
+}
+
+impl Render for PersonaEditor {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .size_full()
+            .gap_3()
+            .p_5()
+            .bg(cx.theme().background)
+            .child(div().text_xl().child(if self.editing_id.is_some() {
+                "Edit Persona"
+            } else {
+                "New Persona"
+            }))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(div().w(px(100.)).text_right().child("Name"))
+                    .child(Input::new(&self.name_input).flex_1()),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(div().w(px(100.)).text_right().child("Instructions"))
+                    .child(Input::new(&self.instructions_input).flex_1()),
+            )
+            .children(
+                self.error
+                    .as_ref()
+                    .map(|error| div().text_sm().child(error.clone())),
+            )
+            .child(
+                h_flex()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        Button::new("cancel-persona-editor")
+                            .label("Cancel")
+                            .on_click(|_, window, _| window.remove_window()),
+                    )
+                    .child(
+                        Button::new("save-persona-editor")
+                            .label("Save")
+                            .primary()
+                            .on_click(cx.listener(|editor, _, window, cx| editor.save(window, cx))),
+                    ),
+            )
+    }
 }
 
 impl Render for SettingsWindow {
@@ -1294,7 +1561,7 @@ impl Render for SettingsWindow {
         let body = match self.selected_tab {
             SettingsTab::General => self.render_general(cx).into_any_element(),
             SettingsTab::Coding => self.render_coding(cx).into_any_element(),
-            SettingsTab::Personas => Self::render_placeholder("Personas", cx).into_any_element(),
+            SettingsTab::Personas => self.render_personas(cx).into_any_element(),
             SettingsTab::Autopilot => Self::render_placeholder("Autopilot", cx).into_any_element(),
             SettingsTab::Voice => Self::render_placeholder("Voice", cx).into_any_element(),
             SettingsTab::Mcp => Self::render_placeholder("MCP", cx).into_any_element(),
@@ -3446,6 +3713,20 @@ mod tests {
     fn agent_type_label_defaults_to_claude() {
         assert_eq!(SettingsWindow::agent_type_label("claude"), "Claude");
         assert_eq!(SettingsWindow::agent_type_label("anything-else"), "Claude");
+    }
+
+    #[test]
+    fn persona_preview_returns_short_instructions_unchanged() {
+        assert_eq!(SettingsWindow::persona_preview("be terse", 80), "be terse");
+    }
+
+    #[test]
+    fn persona_preview_truncates_long_instructions_with_ellipsis() {
+        let instructions = "a".repeat(100);
+        let preview = SettingsWindow::persona_preview(&instructions, 80);
+        assert_eq!(preview.chars().count(), 81);
+        assert!(preview.ends_with('…'));
+        assert_eq!(&preview[..80], "a".repeat(80).as_str());
     }
 
     #[test]
