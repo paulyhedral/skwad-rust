@@ -867,6 +867,11 @@ fn open_settings_window(
                 .placeholder("Port")
                 .default_value(settings.mcp_server_port.to_string())
         });
+        let terminal_font_size_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Size")
+                .default_value(settings.terminal_font_size.to_string())
+        });
         let view = cx.new(|cx| {
             let agent_options_subscription = cx.subscribe(
                 &agent_options_input,
@@ -900,6 +905,14 @@ fn open_settings_window(
                     }
                 },
             );
+            let terminal_font_size_subscription = cx.subscribe(
+                &terminal_font_size_input,
+                |this: &mut SettingsWindow, _, event, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        this.save_terminal_font_size(cx);
+                    }
+                },
+            );
             SettingsWindow {
                 settings,
                 selected_tab: SettingsTab::General,
@@ -909,10 +922,12 @@ fn open_settings_window(
                 ai_api_key_input,
                 autopilot_custom_prompt_input,
                 mcp_port_input,
+                terminal_font_size_input,
                 _agent_options_subscription: agent_options_subscription,
                 _ai_api_key_subscription: ai_api_key_subscription,
                 _autopilot_custom_prompt_subscription: autopilot_custom_prompt_subscription,
                 _mcp_port_subscription: mcp_port_subscription,
+                _terminal_font_size_subscription: terminal_font_size_subscription,
             }
         });
         cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
@@ -966,10 +981,12 @@ struct SettingsWindow {
     ai_api_key_input: Entity<InputState>,
     autopilot_custom_prompt_input: Entity<InputState>,
     mcp_port_input: Entity<InputState>,
+    terminal_font_size_input: Entity<InputState>,
     _agent_options_subscription: Subscription,
     _ai_api_key_subscription: Subscription,
     _autopilot_custom_prompt_subscription: Subscription,
     _mcp_port_subscription: Subscription,
+    _terminal_font_size_subscription: Subscription,
 }
 
 impl SettingsWindow {
@@ -1176,6 +1193,37 @@ impl SettingsWindow {
     fn select_mcp_agent_type(&mut self, agent_type: &str, cx: &mut Context<Self>) {
         self.mcp_selected_agent_type = agent_type.to_string();
         cx.notify();
+    }
+
+    /// Monospace font shortlist ported from the Swift reference's
+    /// `TerminalSettingsView.monospaceFonts`, without the availability
+    /// filter (no font-enumeration API is surfaced through `gpui-kit`).
+    const TERMINAL_FONTS: [&'static str; 11] = [
+        "SF Mono",
+        "Menlo",
+        "Monaco",
+        "Courier New",
+        "Andale Mono",
+        "JetBrains Mono",
+        "Fira Code",
+        "Source Code Pro",
+        "IBM Plex Mono",
+        "Hack",
+        "Inconsolata",
+    ];
+
+    fn select_terminal_font(&mut self, font_name: &str, cx: &mut Context<Self>) {
+        self.settings.terminal_font_name = font_name.to_string();
+        self.persist();
+        cx.notify();
+    }
+
+    fn save_terminal_font_size(&mut self, cx: &mut Context<Self>) {
+        let value = self.terminal_font_size_input.read(cx).value().to_string();
+        if let Ok(size) = value.parse::<f64>() {
+            self.settings.terminal_font_size = size;
+            self.persist();
+        }
     }
 
     /// Truncates `instructions` to `max_chars`, appending an ellipsis when
@@ -2004,6 +2052,49 @@ impl SettingsWindow {
                     ),
             )
     }
+
+    fn render_terminal(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let settings_window = cx.entity();
+        let terminal_font_name = self.settings.terminal_font_name.clone();
+
+        v_flex()
+            .gap_4()
+            .child(div().text_xl().child("Terminal"))
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(Self::section("Font"))
+                    .child(
+                        h_flex().justify_between().child(div().child("Font")).child(
+                            Button::new("terminal-font-picker")
+                                .label(terminal_font_name.clone())
+                                .dropdown_menu({
+                                    let settings_window = settings_window.clone();
+                                    move |menu, _, _| {
+                                        let mut menu = menu;
+                                        for font in Self::TERMINAL_FONTS {
+                                            menu = menu.item(PopupMenuItem::new(font).on_click({
+                                                let settings_window = settings_window.clone();
+                                                move |_, _, app| {
+                                                    settings_window.update(app, |view, cx| {
+                                                        view.select_terminal_font(font, cx);
+                                                    })
+                                                }
+                                            }));
+                                        }
+                                        menu
+                                    }
+                                }),
+                        ),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("Size"))
+                            .child(Input::new(&self.terminal_font_size_input).w(px(60.))),
+                    ),
+            )
+    }
 }
 
 fn persona_editor_window_options(cx: &App) -> WindowOptions {
@@ -2142,7 +2233,7 @@ impl Render for SettingsWindow {
             SettingsTab::Autopilot => self.render_autopilot(cx).into_any_element(),
             SettingsTab::Voice => self.render_voice(cx).into_any_element(),
             SettingsTab::Mcp => self.render_mcp(cx).into_any_element(),
-            SettingsTab::Terminal => Self::render_placeholder("Terminal", cx).into_any_element(),
+            SettingsTab::Terminal => self.render_terminal(cx).into_any_element(),
         };
 
         v_flex()
@@ -4407,6 +4498,26 @@ mod tests {
             "gemini mcp add --transport http knot http://127.0.0.1:8766 --scope user"
         );
         assert_eq!(SettingsWindow::mcp_install_command("copilot", url), "");
+    }
+
+    #[test]
+    fn terminal_fonts_matches_swift_reference_monospace_list() {
+        assert_eq!(
+            SettingsWindow::TERMINAL_FONTS,
+            [
+                "SF Mono",
+                "Menlo",
+                "Monaco",
+                "Courier New",
+                "Andale Mono",
+                "JetBrains Mono",
+                "Fira Code",
+                "Source Code Pro",
+                "IBM Plex Mono",
+                "Hack",
+                "Inconsolata",
+            ]
+        );
     }
 
     #[test]
