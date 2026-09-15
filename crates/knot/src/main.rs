@@ -57,14 +57,25 @@ fn apply_visual_identity(cx: &mut App) {
     let accent: gpui_kit::Hsla = rgb(0x3B82F6).into();
     let accent_hover: gpui_kit::Hsla = rgb(0x2563EB).into();
     let accent_active: gpui_kit::Hsla = rgb(0x1D4ED8).into();
+    let white = gpui_kit::white();
     theme.colors.primary = accent;
     theme.colors.primary_hover = accent_hover;
     theme.colors.primary_active = accent_active;
-    theme.colors.primary_foreground = gpui_kit::white();
+    theme.colors.primary_foreground = white;
+    theme.colors.button_primary = accent;
+    theme.colors.button_primary_hover = accent_hover;
+    theme.colors.button_primary_active = accent_active;
+    theme.colors.button_primary_foreground = white;
     theme.colors.ring = accent;
     theme.colors.selection = accent.opacity(0.25);
 
-    // Colors/fonts only reach actual rendering via the mirrored Base layer.
+    // `tokens` is a legacy snapshot of `colors` taken at construction time,
+    // not re-derived on mutation (that's what Button/Switch actually read
+    // for paint colors, e.g. `cx.theme().tokens.button_primary`).
+    theme.tokens = ThemeTokens::from(&theme.colors);
+
+    // Radius/scrollbar/typography reach rendering through a separately
+    // mirrored Base layer that only `Theme::sync_base` re-derives.
     Theme::sync_base(cx);
 }
 
