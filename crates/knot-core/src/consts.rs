@@ -29,6 +29,11 @@ pub const AI_PROVIDER_DEFAULT: &str = "openai";
 
 pub const AUTOPILOT_ACTION_DEFAULT: &str = "mark";
 
+pub const VOICE_ENGINE_DEFAULT: &str = "apple";
+
+/// `ModifierKeyCode.rightCommand` in the Swift reference.
+pub const VOICE_PUSH_TO_TALK_KEY_DEFAULT: i32 = 54;
+
 /// Shipped system personas: (fixed id, name, instructions). Fixed ids let the
 /// same persona be matched across installs and updates.
 pub const DEFAULT_PERSONAS: [(&str, &str, &str); 6] = [
