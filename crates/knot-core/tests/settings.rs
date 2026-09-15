@@ -45,6 +45,12 @@ fn loads_swift_shaped_document() {
     assert_eq!(s.autopilot_action, "mark");
     assert_eq!(s.autopilot_custom_prompt, "");
 
+    // Fixture predates the voice scalars; decode-tolerant defaults apply.
+    assert!(!s.voice_enabled);
+    assert_eq!(s.voice_engine, "apple");
+    assert_eq!(s.voice_push_to_talk_key, 54);
+    assert!(s.voice_auto_insert);
+
     assert_eq!(s.saved_agents.len(), 1);
     let agent = &s.saved_agents[0];
     assert_eq!(agent.name, "Builder");
@@ -97,6 +103,10 @@ fn reserializes_with_swift_keys() {
         "aiApiKey",
         "autopilotAction",
         "autopilotCustomPrompt",
+        "voiceEnabled",
+        "voiceEngine",
+        "voicePushToTalkKey",
+        "voiceAutoInsert",
         "savedAgents",
         "savedWorkspaces",
         "benchAgents",

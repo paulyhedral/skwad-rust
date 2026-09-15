@@ -29,7 +29,8 @@ use crate::consts::{
     AI_PROVIDER_DEFAULT, APP_NAME, APPEARANCE_MODE_DEFAULT, AUTOPILOT_ACTION_DEFAULT,
     DEFAULT_PERSONAS, MARKDOWN_FONT_SIZE_DEFAULT, MCP_PORT_DEFAULT, MERMAID_THEME_DEFAULT,
     ORG_NAME, ORG_QUALIFIER, RECENT_REPOS_MAX, SETTINGS_FILE, SOURCE_FOLDER_CANDIDATES,
-    TERMINAL_FONT_DEFAULT, TERMINAL_FONT_SIZE_DEFAULT,
+    TERMINAL_FONT_DEFAULT, TERMINAL_FONT_SIZE_DEFAULT, VOICE_ENGINE_DEFAULT,
+    VOICE_PUSH_TO_TALK_KEY_DEFAULT,
 };
 use crate::error::{Error, Result};
 
@@ -61,6 +62,10 @@ pub struct Settings {
     pub ai_api_key: String,
     pub autopilot_action: String,
     pub autopilot_custom_prompt: String,
+    pub voice_enabled: bool,
+    pub voice_engine: String,
+    pub voice_push_to_talk_key: i32,
+    pub voice_auto_insert: bool,
 
     #[serde(deserialize_with = "de_tolerant_vec")]
     pub saved_agents: Vec<SavedAgent>,
@@ -101,6 +106,10 @@ impl Default for Settings {
             ai_api_key: String::new(),
             autopilot_action: AUTOPILOT_ACTION_DEFAULT.to_string(),
             autopilot_custom_prompt: String::new(),
+            voice_enabled: false,
+            voice_engine: VOICE_ENGINE_DEFAULT.to_string(),
+            voice_push_to_talk_key: VOICE_PUSH_TO_TALK_KEY_DEFAULT,
+            voice_auto_insert: true,
             saved_agents: Vec::new(),
             saved_workspaces: Vec::new(),
             personas: Vec::new(),

@@ -1110,6 +1110,25 @@ impl SettingsWindow {
         self.persist();
     }
 
+    /// Display name for a modifier key code, ported from the Swift
+    /// reference's `ModifierKeyCode.name(for:)`.
+    fn key_name_for_code(code: i32) -> String {
+        match code {
+            54 => "Right Command",
+            55 => "Left Command",
+            56 => "Left Shift",
+            57 => "Caps Lock",
+            58 => "Left Option",
+            59 => "Left Control",
+            60 => "Right Shift",
+            61 => "Right Option",
+            62 => "Right Control",
+            63 => "Fn",
+            _ => return format!("Key {code}"),
+        }
+        .to_string()
+    }
+
     /// Truncates `instructions` to `max_chars`, appending an ellipsis when
     /// truncated so a persona list row stays a single line.
     fn persona_preview(instructions: &str, max_chars: usize) -> String {
@@ -1700,6 +1719,116 @@ impl SettingsWindow {
                     })),
             )
     }
+
+    fn render_voice(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let settings_window = cx.entity();
+        let voice_enabled = self.settings.voice_enabled;
+        let voice_auto_insert = self.settings.voice_auto_insert;
+        let key_name = Self::key_name_for_code(self.settings.voice_push_to_talk_key);
+
+        v_flex()
+            .gap_4()
+            .child(div().text_xl().child("Voice"))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(
+                        "Voice input allows you to speak commands to your agents using \
+                     push-to-talk. Hold the configured key to record, release to stop.",
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(Self::section("Engine"))
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("Enable voice input"))
+                            .child(
+                                Switch::new("voice-enabled")
+                                    .checked(voice_enabled)
+                                    .on_click({
+                                        let settings_window = settings_window.clone();
+                                        move |checked, _, app| {
+                                            let checked = *checked;
+                                            settings_window.update(app, |view, _| {
+                                                view.settings.voice_enabled = checked;
+                                                view.persist();
+                                            })
+                                        }
+                                    }),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("Engine"))
+                            .child(
+                                Button::new("voice-engine-picker")
+                                    .label("Apple SpeechAnalyzer")
+                                    .disabled(true),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(
+                                "Uses on-device speech recognition. No data is sent to the cloud.",
+                            ),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(Self::section("Input"))
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("Push-to-Talk Key"))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .opacity(if voice_enabled { 1.0 } else { 0.5 })
+                                    .child(key_name),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("Auto-insert transcription"))
+                            .child(
+                                Switch::new("voice-auto-insert")
+                                    .checked(voice_auto_insert)
+                                    .disabled(!voice_enabled)
+                                    .on_click({
+                                        let settings_window = settings_window.clone();
+                                        move |checked, _, app| {
+                                            let checked = *checked;
+                                            settings_window.update(app, |view, _| {
+                                                view.settings.voice_auto_insert = checked;
+                                                view.persist();
+                                            })
+                                        }
+                                    }),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(if voice_auto_insert {
+                                "Transcribed text will be automatically inserted into the terminal."
+                            } else {
+                                "Transcribed text will be shown in a popup for review before \
+                                 insertion."
+                            }),
+                    ),
+            )
+    }
 }
 
 fn persona_editor_window_options(cx: &App) -> WindowOptions {
@@ -1836,7 +1965,7 @@ impl Render for SettingsWindow {
             SettingsTab::Coding => self.render_coding(cx).into_any_element(),
             SettingsTab::Personas => self.render_personas(cx).into_any_element(),
             SettingsTab::Autopilot => self.render_autopilot(cx).into_any_element(),
-            SettingsTab::Voice => Self::render_placeholder("Voice", cx).into_any_element(),
+            SettingsTab::Voice => self.render_voice(cx).into_any_element(),
             SettingsTab::Mcp => Self::render_placeholder("MCP", cx).into_any_element(),
             SettingsTab::Terminal => Self::render_placeholder("Terminal", cx).into_any_element(),
         };
@@ -4057,6 +4186,18 @@ mod tests {
             .map(|action| SettingsWindow::autopilot_action_description(action))
             .collect();
         assert_eq!(descriptions.len(), 4);
+    }
+
+    #[test]
+    fn key_name_for_code_maps_known_modifier_codes() {
+        assert_eq!(SettingsWindow::key_name_for_code(54), "Right Command");
+        assert_eq!(SettingsWindow::key_name_for_code(56), "Left Shift");
+        assert_eq!(SettingsWindow::key_name_for_code(63), "Fn");
+    }
+
+    #[test]
+    fn key_name_for_code_falls_back_for_unknown_codes() {
+        assert_eq!(SettingsWindow::key_name_for_code(999), "Key 999");
     }
 
     #[test]
