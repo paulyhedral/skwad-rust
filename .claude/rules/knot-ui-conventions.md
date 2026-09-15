@@ -85,8 +85,10 @@ and dialogs; follow them for any new pane, dialog, or window in `crates/knot`.
   bold, persona line prefixed with an icon when the agent has one, then a
   status/title line and a folder-name line (last path component only, not
   the full path), with a small state-colored dot trailing when the agent
-  isn't a shell agent. Map `AgentState` to a dot color the same way the
-  Swift reference does: idle=green, working=orange, awaiting-input/error=red.
+  isn't a shell agent. `AgentState` dot colors (diverges from the Swift
+  reference, which uses red for both): idle=green, working=orange,
+  awaiting-input=blue, error=red - awaiting-input needs its own color since
+  it isn't a failure state.
 - Single-character fields (an avatar/emoji slot): back them with a real
   `InputState`, but clamp on `Change` to the first extended grapheme cluster
   (`unicode_segmentation::UnicodeSegmentation::graphemes(s, true).next()`,

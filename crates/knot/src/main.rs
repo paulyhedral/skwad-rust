@@ -186,13 +186,15 @@ fn state_label(state: knot_agents::AgentState) -> &'static str {
     }
 }
 
-/// Status-dot color for the agent's automatic state, matching the Swift
-/// reference's `AgentState.color` (idle=green, working=orange, input/error=red).
+/// Status-dot color for the agent's automatic state. Diverges from the
+/// Swift reference (which uses red for both input and error) by giving
+/// "awaiting input" its own blue, since it isn't a failure state.
 fn state_color(state: knot_agents::AgentState) -> gpui_kit::Hsla {
     match state {
         knot_agents::AgentState::Idle => rgb(0x22C55E).into(),
         knot_agents::AgentState::Running => rgb(0xF97316).into(),
-        knot_agents::AgentState::Input | knot_agents::AgentState::Error => rgb(0xEF4444).into(),
+        knot_agents::AgentState::Input => rgb(0x3B82F6).into(),
+        knot_agents::AgentState::Error => rgb(0xEF4444).into(),
     }
 }
 
