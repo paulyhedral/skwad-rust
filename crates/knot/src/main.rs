@@ -10,9 +10,11 @@ use std::time::Duration;
 use gpui_kit::base::Selectable;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::group_box::{GroupBox, GroupBoxVariants};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::switch::Switch;
+use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::component::*;
 use gpui_kit::{
     AnyWindowHandle, App, AppContext, AsyncApp, ClickEvent, ClipboardItem, Context, Entity,
@@ -865,10 +867,19 @@ fn agent_window_options(cx: &App) -> WindowOptions {
     }
 }
 
+/// Fixed width for the settings window; only height varies per pane.
+const SETTINGS_WINDOW_WIDTH: gpui_kit::Pixels = px(620.);
+
 fn settings_window_options(cx: &App) -> WindowOptions {
     WindowOptions {
-        window_bounds: Some(WindowBounds::centered(size(px(620.), px(560.)), cx)),
-        window_min_size: Some(size(px(480.), px(420.))),
+        window_bounds: Some(WindowBounds::centered(
+            size(
+                SETTINGS_WINDOW_WIDTH,
+                SettingsWindow::pane_target_height(SettingsTab::General),
+            ),
+            cx,
+        )),
+        window_min_size: Some(size(px(480.), px(320.))),
         ..WindowOptions::default()
     }
 }
@@ -1043,8 +1054,47 @@ impl SettingsWindow {
         }
     }
 
-    fn section(title: &'static str) -> impl IntoElement {
-        div().text_sm().font_semibold().child(title)
+    /// Right-aligned label column width shared by every settings row, so
+    /// labels line up across a pane regardless of their length.
+    const LABEL_WIDTH: f32 = 200.;
+
+    /// A titled, bordered card grouping related controls. The title is
+    /// deliberately larger than row content (`text_lg` vs. the default
+    /// `text_base` used by row labels/controls) - a section header should
+    /// never read smaller than what it's heading.
+    fn group(title: &'static str) -> GroupBox {
+        GroupBox::new()
+            .outline()
+            .title(div().text_lg().font_semibold().child(title))
+    }
+
+    /// A label + control row with the label right-aligned in a fixed-width
+    /// column, matching the alignment convention already used by
+    /// `AgentEditor`/`PersonaEditor`.
+    fn row(label: &'static str, control: impl IntoElement) -> impl IntoElement {
+        h_flex()
+            .gap_3()
+            .items_center()
+            .child(div().w(px(Self::LABEL_WIDTH)).text_right().child(label))
+            .child(control)
+    }
+
+    /// A small icon-only action button with a tooltip, used for utility
+    /// actions (choose/clear/add/edit/delete/copy) instead of a text label -
+    /// text buttons read as arbitrary activators, an icon reads as what it
+    /// does. `danger` tints destructive actions (clear/delete) red.
+    fn icon_button(
+        id: impl Into<gpui_kit::ElementId>,
+        icon_path: &'static str,
+        tooltip: &'static str,
+        danger: bool,
+    ) -> Button {
+        let button = Button::new(id)
+            .icon(Icon::default().path(icon_path))
+            .tooltip(tooltip)
+            .ghost()
+            .small();
+        if danger { button.danger() } else { button }
     }
 
     fn appearance_label(mode: &str) -> &'static str {
@@ -1300,29 +1350,39 @@ impl SettingsWindow {
 }
 
 impl SettingsWindow {
-    fn render_tab_strip(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let settings_window = cx.entity();
-        h_flex().gap_2().children(SettingsTab::ALL.map(|tab| {
-            Button::new(("settings-tab", tab as u32))
-                .label(tab.label())
-                .selected(self.selected_tab == tab)
-                .on_click({
-                    let settings_window = settings_window.clone();
-                    move |_, _, app| {
-                        settings_window.update(app, |view, cx| {
-                            view.selected_tab = tab;
-                            cx.notify();
-                        })
-                    }
-                })
-        }))
+    /// Target window height for each pane's content, capped so a long
+    /// Personas list can't push the window arbitrarily tall - it scrolls
+    /// within the cap instead (see `render` below).
+    fn pane_target_height(tab: SettingsTab) -> gpui_kit::Pixels {
+        match tab {
+            SettingsTab::General => px(430.),
+            SettingsTab::Coding => px(380.),
+            SettingsTab::Personas => px(640.),
+            SettingsTab::Autopilot => px(560.),
+            SettingsTab::Voice => px(420.),
+            SettingsTab::Mcp => px(480.),
+            SettingsTab::Terminal => px(340.),
+        }
     }
 
-    fn render_placeholder(name: &'static str, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .text_sm()
-            .text_color(cx.theme().muted_foreground)
-            .child(format!("{name} is not yet available."))
+    fn render_tab_strip(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let settings_window = cx.entity();
+        let selected_index = SettingsTab::ALL
+            .iter()
+            .position(|tab| *tab == self.selected_tab)
+            .unwrap_or(0);
+        TabBar::new("settings-tabs")
+            .underline()
+            .selected_index(selected_index)
+            .children(SettingsTab::ALL.map(|tab| Tab::new().label(tab.label())))
+            .on_click(move |index, window, app| {
+                let tab = SettingsTab::ALL[*index];
+                settings_window.update(app, |view, cx| {
+                    view.selected_tab = tab;
+                    cx.notify();
+                });
+                window.resize(size(SETTINGS_WINDOW_WIDTH, Self::pane_target_height(tab)));
+            })
     }
 
     fn render_general(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1335,50 +1395,38 @@ impl SettingsWindow {
 
         v_flex()
             .gap_3()
-            .child(div().text_xl().child("General"))
             .child(
-                v_flex()
-                    .gap_2()
-                    .child(Self::section("Appearance"))
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("Appearance"))
-                            .child(
-                                Button::new("appearance-picker")
-                                    .label(appearance_label)
-                                    .dropdown_menu({
-                                        let settings_window = settings_window.clone();
-                                        move |menu, _, _| {
-                                            let mut menu = menu;
-                                            for (label, value) in [
-                                                ("Auto", "auto"),
-                                                ("System", "system"),
-                                                ("Light", "light"),
-                                                ("Dark", "dark"),
-                                            ] {
-                                                menu = menu.item(
-                                                    PopupMenuItem::new(label).on_click({
-                                                        let settings_window =
-                                                            settings_window.clone();
-                                                        move |_, _, app| {
-                                                            settings_window.update(
-                                                                app,
-                                                                |view, _| {
-                                                                    view.settings.appearance_mode =
-                                                                        value.to_string();
-                                                                    view.persist();
-                                                                },
-                                                            )
-                                                        }
-                                                    }),
-                                                );
+                Self::group("Appearance")
+                    .child(Self::row(
+                        "Appearance",
+                        Button::new("appearance-picker")
+                            .label(appearance_label)
+                            .dropdown_caret(true)
+                            .dropdown_menu({
+                                let settings_window = settings_window.clone();
+                                move |menu, _, _| {
+                                    let mut menu = menu;
+                                    for (label, value) in [
+                                        ("Auto", "auto"),
+                                        ("System", "system"),
+                                        ("Light", "light"),
+                                        ("Dark", "dark"),
+                                    ] {
+                                        menu = menu.item(PopupMenuItem::new(label).on_click({
+                                            let settings_window = settings_window.clone();
+                                            move |_, _, app| {
+                                                settings_window.update(app, |view, _| {
+                                                    view.settings.appearance_mode =
+                                                        value.to_string();
+                                                    view.persist();
+                                                })
                                             }
-                                            menu
-                                        }
-                                    }),
-                            ),
-                    )
+                                        }));
+                                    }
+                                    menu
+                                }
+                            }),
+                    ))
                     .child(
                         div()
                             .text_sm()
@@ -1387,95 +1435,72 @@ impl SettingsWindow {
                     ),
             )
             .child(
-                v_flex()
-                    .gap_2()
-                    .child(Self::section("Startup"))
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("Restore agents on launch"))
-                            .child(
-                                Switch::new("restore-layout-on-launch")
-                                    .checked(restore_layout_on_launch)
-                                    .on_click({
-                                        let settings_window = settings_window.clone();
-                                        move |checked, _, app| {
-                                            let checked = *checked;
-                                            settings_window.update(app, |view, _| {
-                                                view.settings.restore_layout_on_launch = checked;
-                                                view.persist();
-                                            })
-                                        }
-                                    }),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("Restore last conversation"))
-                            .child(
-                                Switch::new("restore-conversation-on-launch")
-                                    .checked(restore_conversation_on_launch)
-                                    .disabled(!Self::restore_conversation_toggle_enabled(
-                                        restore_layout_on_launch,
-                                    ))
-                                    .on_click({
-                                        let settings_window = settings_window.clone();
-                                        move |checked, _, app| {
-                                            let checked = *checked;
-                                            settings_window.update(app, |view, _| {
-                                                view.settings.restore_conversation_on_launch =
-                                                    checked;
-                                                view.persist();
-                                            })
-                                        }
-                                    }),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("Keep running in menu bar when closed"))
-                            .child(
-                                Switch::new("keep-in-menu-bar")
-                                    .checked(keep_in_menu_bar)
-                                    .on_click({
-                                        let settings_window = settings_window.clone();
-                                        move |checked, _, app| {
-                                            let checked = *checked;
-                                            settings_window.update(app, |view, _| {
-                                                view.settings.keep_in_menu_bar = checked;
-                                                view.persist();
-                                            })
-                                        }
-                                    }),
-                            ),
-                    ),
+                Self::group("Startup")
+                    .child(Self::row(
+                        "Restore agents on launch",
+                        Switch::new("restore-layout-on-launch")
+                            .checked(restore_layout_on_launch)
+                            .on_click({
+                                let settings_window = settings_window.clone();
+                                move |checked, _, app| {
+                                    let checked = *checked;
+                                    settings_window.update(app, |view, _| {
+                                        view.settings.restore_layout_on_launch = checked;
+                                        view.persist();
+                                    })
+                                }
+                            }),
+                    ))
+                    .child(Self::row(
+                        "Restore last conversation",
+                        Switch::new("restore-conversation-on-launch")
+                            .checked(restore_conversation_on_launch)
+                            .disabled(!Self::restore_conversation_toggle_enabled(
+                                restore_layout_on_launch,
+                            ))
+                            .on_click({
+                                let settings_window = settings_window.clone();
+                                move |checked, _, app| {
+                                    let checked = *checked;
+                                    settings_window.update(app, |view, _| {
+                                        view.settings.restore_conversation_on_launch = checked;
+                                        view.persist();
+                                    })
+                                }
+                            }),
+                    ))
+                    .child(Self::row(
+                        "Keep running in menu bar when closed",
+                        Switch::new("keep-in-menu-bar")
+                            .checked(keep_in_menu_bar)
+                            .on_click({
+                                let settings_window = settings_window.clone();
+                                move |checked, _, app| {
+                                    let checked = *checked;
+                                    settings_window.update(app, |view, _| {
+                                        view.settings.keep_in_menu_bar = checked;
+                                        view.persist();
+                                    })
+                                }
+                            }),
+                    )),
             )
             .child(
-                v_flex()
-                    .gap_2()
-                    .child(Self::section("Notifications"))
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("Desktop notifications"))
-                            .child(
-                                Switch::new("desktop-notifications-enabled")
-                                    .checked(desktop_notifications_enabled)
-                                    .on_click({
-                                        let settings_window = settings_window.clone();
-                                        move |checked, _, app| {
-                                            let checked = *checked;
-                                            settings_window.update(app, |view, _| {
-                                                view.settings.desktop_notifications_enabled =
-                                                    checked;
-                                                view.persist();
-                                            })
-                                        }
-                                    }),
-                            ),
-                    ),
+                Self::group("Notifications").child(Self::row(
+                    "Desktop notifications",
+                    Switch::new("desktop-notifications-enabled")
+                        .checked(desktop_notifications_enabled)
+                        .on_click({
+                            let settings_window = settings_window.clone();
+                            move |checked, _, app| {
+                                let checked = *checked;
+                                settings_window.update(app, |view, _| {
+                                    view.settings.desktop_notifications_enabled = checked;
+                                    view.persist();
+                                })
+                            }
+                        }),
+                )),
             )
     }
 
@@ -1491,96 +1516,87 @@ impl SettingsWindow {
 
         v_flex()
             .gap_3()
-            .child(div().text_xl().child("Coding"))
             .child(
-                v_flex()
-                    .gap_2()
-                    .child(Self::section("Source Folder"))
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().text_sm().child(folder_label))
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .child(
-                                        Button::new("coding-choose-source-folder")
-                                            .label("Choose…")
-                                            .on_click({
-                                                let settings_window = settings_window.clone();
-                                                move |_, _, app| {
-                                                    settings_window.update(app, |view, cx| {
-                                                        view.choose_source_folder(cx);
-                                                    })
-                                                }
-                                            }),
+                Self::group("Source Folder").child(Self::row(
+                    "Folder",
+                    h_flex()
+                        .flex_1()
+                        .justify_between()
+                        .child(div().text_sm().child(folder_label))
+                        .child(
+                            h_flex()
+                                .gap_1()
+                                .child(
+                                    Self::icon_button(
+                                        "coding-choose-source-folder",
+                                        "icons/folder-open.svg",
+                                        "Choose source folder",
+                                        false,
                                     )
-                                    .child(
-                                        Button::new("coding-clear-source-folder")
-                                            .label("Clear")
-                                            .on_click({
-                                                let settings_window = settings_window.clone();
-                                                move |_, _, app| {
-                                                    settings_window.update(app, |view, cx| {
-                                                        view.clear_source_folder(cx);
-                                                    })
-                                                }
-                                            }),
-                                    ),
-                            ),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .gap_2()
-                    .child(Self::section("Agent Options"))
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("Coding agent"))
-                            .child(
-                                Button::new("coding-agent-type-picker")
-                                    .label(agent_type_label)
-                                    .dropdown_menu({
+                                    .on_click({
                                         let settings_window = settings_window.clone();
-                                        move |menu, _, _| {
-                                            let mut menu = menu;
-                                            for (label, value) in [
-                                                ("Claude", "claude"),
-                                                ("Codex", "codex"),
-                                                ("OpenCode", "opencode"),
-                                                ("Gemini", "gemini"),
-                                                ("Copilot", "copilot"),
-                                                ("Shell", "shell"),
-                                            ] {
-                                                menu = menu.item(
-                                                    PopupMenuItem::new(label).on_click({
-                                                        let settings_window =
-                                                            settings_window.clone();
-                                                        move |_, window, app| {
-                                                            settings_window.update(
-                                                                app,
-                                                                |view, cx| {
-                                                                    view.select_agent_type(
-                                                                        value, window, cx,
-                                                                    );
-                                                                },
-                                                            )
-                                                        }
-                                                    }),
-                                                );
-                                            }
-                                            menu
+                                        move |_, _, app| {
+                                            settings_window.update(app, |view, cx| {
+                                                view.choose_source_folder(cx);
+                                            })
                                         }
                                     }),
-                            ),
-                    )
-                    .child(
-                        v_flex()
-                            .gap_1()
-                            .child(div().text_sm().child("Options"))
-                            .child(Input::new(&self.agent_options_input).flex_1()),
-                    ),
+                                )
+                                .child(
+                                    Self::icon_button(
+                                        "coding-clear-source-folder",
+                                        "icons/x.svg",
+                                        "Clear source folder",
+                                        true,
+                                    )
+                                    .on_click({
+                                        let settings_window = settings_window.clone();
+                                        move |_, _, app| {
+                                            settings_window.update(app, |view, cx| {
+                                                view.clear_source_folder(cx);
+                                            })
+                                        }
+                                    }),
+                                ),
+                        ),
+                )),
+            )
+            .child(
+                Self::group("Agent Options")
+                    .child(Self::row(
+                        "Coding agent",
+                        Button::new("coding-agent-type-picker")
+                            .label(agent_type_label)
+                            .dropdown_caret(true)
+                            .dropdown_menu({
+                                let settings_window = settings_window.clone();
+                                move |menu, _, _| {
+                                    let mut menu = menu;
+                                    for (label, value) in [
+                                        ("Claude", "claude"),
+                                        ("Codex", "codex"),
+                                        ("OpenCode", "opencode"),
+                                        ("Gemini", "gemini"),
+                                        ("Copilot", "copilot"),
+                                        ("Shell", "shell"),
+                                    ] {
+                                        menu = menu.item(PopupMenuItem::new(label).on_click({
+                                            let settings_window = settings_window.clone();
+                                            move |_, window, app| {
+                                                settings_window.update(app, |view, cx| {
+                                                    view.select_agent_type(value, window, cx);
+                                                })
+                                            }
+                                        }));
+                                    }
+                                    menu
+                                }
+                            }),
+                    ))
+                    .child(Self::row(
+                        "Options",
+                        Input::new(&self.agent_options_input).flex_1(),
+                    )),
             )
     }
 
@@ -1621,9 +1637,15 @@ impl SettingsWindow {
                         )
                         .child(
                             h_flex()
-                                .gap_2()
-                                .child(Button::new(("persona-edit", index)).label("Edit").on_click(
-                                    {
+                                .gap_1()
+                                .child(
+                                    Self::icon_button(
+                                        ("persona-edit", index),
+                                        "icons/pencil.svg",
+                                        "Edit persona",
+                                        false,
+                                    )
+                                    .on_click({
                                         let parent = settings_window.downgrade();
                                         let persona = persona.clone();
                                         move |_, _, app| {
@@ -1633,71 +1655,78 @@ impl SettingsWindow {
                                                 app,
                                             );
                                         }
-                                    },
-                                ))
+                                    }),
+                                )
                                 .child(
-                                    Button::new(("persona-delete", index))
-                                        .label("Delete")
-                                        .on_click({
-                                            let settings_window = settings_window.clone();
-                                            move |_, _, app| {
-                                                settings_window.update(app, |view, cx| {
-                                                    view.delete_persona(id, cx);
-                                                })
-                                            }
-                                        }),
+                                    Self::icon_button(
+                                        ("persona-delete", index),
+                                        "icons/trash.svg",
+                                        "Delete persona",
+                                        true,
+                                    )
+                                    .on_click({
+                                        let settings_window = settings_window.clone();
+                                        move |_, _, app| {
+                                            settings_window.update(app, |view, cx| {
+                                                view.delete_persona(id, cx);
+                                            })
+                                        }
+                                    }),
                                 ),
                         )
                 }))
                 .into_any_element()
         };
 
-        v_flex()
-            .gap_3()
-            .child(div().text_xl().child("Personas"))
-            .child(
-                h_flex()
-                    .justify_between()
-                    .child(Self::section("Personas"))
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(Button::new("personas-add").label("Add Persona…").on_click({
+        v_flex().gap_3().child(
+            Self::group("Personas")
+                .child(
+                    h_flex()
+                        .justify_between()
+                        .child(
+                            Self::icon_button(
+                                "personas-add",
+                                "icons/plus.svg",
+                                "Add Persona…",
+                                false,
+                            )
+                            .on_click({
                                 let parent = settings_window.downgrade();
                                 move |_, _, app| {
                                     open_persona_editor(parent.clone(), None, app);
                                 }
-                            }))
-                            .child(
-                                Button::new("personas-restore-defaults")
-                                    .label("Restore Defaults")
-                                    .on_click({
+                            }),
+                        )
+                        .child(
+                            Button::new("personas-restore-defaults")
+                                .label("Restore Defaults")
+                                .on_click({
+                                    let settings_window = settings_window.clone();
+                                    move |_, window, app| {
                                         let settings_window = settings_window.clone();
-                                        move |_, window, app| {
+                                        window.open_alert_dialog(app, move |alert, _, _| {
                                             let settings_window = settings_window.clone();
-                                            window.open_alert_dialog(app, move |alert, _, _| {
-                                                let settings_window = settings_window.clone();
-                                                alert
-                                                    .title("Restore Defaults")
-                                                    .description(
-                                                        "Resets built-in personas to their \
-                                                         original name and instructions. \
-                                                         Personas you created are not affected.",
-                                                    )
-                                                    .confirm()
-                                                    .on_ok(move |_, _, app| {
-                                                        settings_window.update(app, |view, cx| {
-                                                            view.restore_default_personas(cx);
-                                                        });
-                                                        true
-                                                    })
-                                            });
-                                        }
-                                    }),
-                            ),
-                    ),
-            )
-            .child(list)
+                                            alert
+                                                .title("Restore Defaults")
+                                                .description(
+                                                    "Resets built-in personas to their \
+                                                     original name and instructions. \
+                                                     Personas you created are not affected.",
+                                                )
+                                                .confirm()
+                                                .on_ok(move |_, _, app| {
+                                                    settings_window.update(app, |view, cx| {
+                                                        view.restore_default_personas(cx);
+                                                    });
+                                                    true
+                                                })
+                                        });
+                                    }
+                                }),
+                        ),
+                )
+                .child(list),
+        )
     }
 
     fn render_autopilot(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1712,30 +1741,23 @@ impl SettingsWindow {
 
         v_flex()
             .gap_3()
-            .child(div().text_xl().child("Autopilot"))
             .child(
-                v_flex()
-                    .gap_2()
-                    .child(Self::section("Autopilot"))
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("Enable autopilot"))
-                            .child(
-                                Switch::new("autopilot-enabled")
-                                    .checked(autopilot_enabled)
-                                    .on_click({
-                                        let settings_window = settings_window.clone();
-                                        move |checked, _, app| {
-                                            let checked = *checked;
-                                            settings_window.update(app, |view, _| {
-                                                view.settings.autopilot_enabled = checked;
-                                                view.persist();
-                                            })
-                                        }
-                                    }),
-                            ),
-                    )
+                Self::group("Enable")
+                    .child(Self::row(
+                        "Enable autopilot",
+                        Switch::new("autopilot-enabled")
+                            .checked(autopilot_enabled)
+                            .on_click({
+                                let settings_window = settings_window.clone();
+                                move |checked, _, app| {
+                                    let checked = *checked;
+                                    settings_window.update(app, |view, _| {
+                                        view.settings.autopilot_enabled = checked;
+                                        view.persist();
+                                    })
+                                }
+                            }),
+                    ))
                     .child(
                         div()
                             .text_sm()
@@ -1747,119 +1769,89 @@ impl SettingsWindow {
                     ),
             )
             .child(
-                v_flex()
-                    .gap_2()
-                    .child(Self::section("AI Provider"))
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("Provider"))
-                            .child(
-                                Button::new("autopilot-provider-picker")
-                                    .label(provider_label)
-                                    .dropdown_menu({
-                                        let settings_window = settings_window.clone();
-                                        move |menu, _, _| {
-                                            let mut menu = menu;
-                                            for (label, value) in [
-                                                ("OpenAI", "openai"),
-                                                ("Anthropic", "anthropic"),
-                                                ("Google", "google"),
-                                            ] {
-                                                menu = menu.item(
-                                                    PopupMenuItem::new(label).on_click({
-                                                        let settings_window =
-                                                            settings_window.clone();
-                                                        move |_, _, app| {
-                                                            settings_window.update(
-                                                                app,
-                                                                |view, cx| {
-                                                                    view.select_ai_provider(
-                                                                        value, cx,
-                                                                    );
-                                                                },
-                                                            )
-                                                        }
-                                                    }),
-                                                );
+                Self::group("AI Provider")
+                    .child(Self::row(
+                        "Provider",
+                        Button::new("autopilot-provider-picker")
+                            .label(provider_label)
+                            .dropdown_caret(true)
+                            .dropdown_menu({
+                                let settings_window = settings_window.clone();
+                                move |menu, _, _| {
+                                    let mut menu = menu;
+                                    for (label, value) in [
+                                        ("OpenAI", "openai"),
+                                        ("Anthropic", "anthropic"),
+                                        ("Google", "google"),
+                                    ] {
+                                        menu = menu.item(PopupMenuItem::new(label).on_click({
+                                            let settings_window = settings_window.clone();
+                                            move |_, _, app| {
+                                                settings_window.update(app, |view, cx| {
+                                                    view.select_ai_provider(value, cx);
+                                                })
                                             }
-                                            menu
-                                        }
-                                    }),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("API Key"))
-                            .child(Input::new(&self.ai_api_key_input).flex_1()),
-                    )
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("Model"))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(model_name),
-                            ),
-                    ),
+                                        }));
+                                    }
+                                    menu
+                                }
+                            }),
+                    ))
+                    .child(Self::row(
+                        "API Key",
+                        Input::new(&self.ai_api_key_input).flex_1(),
+                    ))
+                    .child(Self::row(
+                        "Model",
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(model_name),
+                    )),
             )
             .child(
-                v_flex()
-                    .gap_2()
-                    .child(Self::section("Action"))
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("When input is detected"))
-                            .child(
-                                Button::new("autopilot-action-picker")
-                                    .label(action_label)
-                                    .dropdown_menu({
-                                        let settings_window = settings_window.clone();
-                                        move |menu, _, _| {
-                                            let mut menu = menu;
-                                            for (label, value) in [
-                                                ("Mark conversation", "mark"),
-                                                ("Ask me", "ask"),
-                                                ("Auto-continue", "continue"),
-                                                ("Custom", "custom"),
-                                            ] {
-                                                menu = menu.item(
-                                                    PopupMenuItem::new(label).on_click({
-                                                        let settings_window =
-                                                            settings_window.clone();
-                                                        move |_, _, app| {
-                                                            settings_window.update(
-                                                                app,
-                                                                |view, cx| {
-                                                                    view.select_autopilot_action(
-                                                                        value, cx,
-                                                                    );
-                                                                },
-                                                            )
-                                                        }
-                                                    }),
-                                                );
+                Self::group("Action")
+                    .child(Self::row(
+                        "When input is detected",
+                        Button::new("autopilot-action-picker")
+                            .label(action_label)
+                            .dropdown_caret(true)
+                            .dropdown_menu({
+                                let settings_window = settings_window.clone();
+                                move |menu, _, _| {
+                                    let mut menu = menu;
+                                    for (label, value) in [
+                                        ("Mark conversation", "mark"),
+                                        ("Ask me", "ask"),
+                                        ("Auto-continue", "continue"),
+                                        ("Custom", "custom"),
+                                    ] {
+                                        menu = menu.item(PopupMenuItem::new(label).on_click({
+                                            let settings_window = settings_window.clone();
+                                            move |_, _, app| {
+                                                settings_window.update(app, |view, cx| {
+                                                    view.select_autopilot_action(value, cx);
+                                                })
                                             }
-                                            menu
-                                        }
-                                    }),
-                            ),
-                    )
+                                        }));
+                                    }
+                                    menu
+                                }
+                            }),
+                    ))
                     .children(is_custom_action.then(|| {
-                        v_flex()
-                            .gap_1()
-                            .child(div().text_sm().child("Custom prompt"))
-                            .child(Input::new(&self.autopilot_custom_prompt_input).flex_1())
+                        Self::row(
+                            "Custom prompt",
+                            Input::new(&self.autopilot_custom_prompt_input).flex_1(),
+                        )
+                        .into_any_element()
                     }))
                     .children((!is_custom_action).then(|| {
                         div()
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
                             .child(Self::autopilot_action_description(&autopilot_action))
+                            .into_any_element()
                     })),
             )
     }
@@ -1872,7 +1864,6 @@ impl SettingsWindow {
 
         v_flex()
             .gap_3()
-            .child(div().text_xl().child("Voice"))
             .child(
                 div()
                     .text_sm()
@@ -1883,38 +1874,28 @@ impl SettingsWindow {
                     ),
             )
             .child(
-                v_flex()
-                    .gap_2()
-                    .child(Self::section("Engine"))
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("Enable voice input"))
-                            .child(
-                                Switch::new("voice-enabled")
-                                    .checked(voice_enabled)
-                                    .on_click({
-                                        let settings_window = settings_window.clone();
-                                        move |checked, _, app| {
-                                            let checked = *checked;
-                                            settings_window.update(app, |view, _| {
-                                                view.settings.voice_enabled = checked;
-                                                view.persist();
-                                            })
-                                        }
-                                    }),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("Engine"))
-                            .child(
-                                Button::new("voice-engine-picker")
-                                    .label("Apple SpeechAnalyzer")
-                                    .disabled(true),
-                            ),
-                    )
+                Self::group("Engine")
+                    .child(Self::row(
+                        "Enable voice input",
+                        Switch::new("voice-enabled")
+                            .checked(voice_enabled)
+                            .on_click({
+                                let settings_window = settings_window.clone();
+                                move |checked, _, app| {
+                                    let checked = *checked;
+                                    settings_window.update(app, |view, _| {
+                                        view.settings.voice_enabled = checked;
+                                        view.persist();
+                                    })
+                                }
+                            }),
+                    ))
+                    .child(Self::row(
+                        "Engine",
+                        Button::new("voice-engine-picker")
+                            .label("Apple SpeechAnalyzer")
+                            .disabled(true),
+                    ))
                     .child(
                         div()
                             .text_sm()
@@ -1925,41 +1906,31 @@ impl SettingsWindow {
                     ),
             )
             .child(
-                v_flex()
-                    .gap_2()
-                    .child(Self::section("Input"))
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("Push-to-Talk Key"))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .opacity(if voice_enabled { 1.0 } else { 0.5 })
-                                    .child(key_name),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("Auto-insert transcription"))
-                            .child(
-                                Switch::new("voice-auto-insert")
-                                    .checked(voice_auto_insert)
-                                    .disabled(!voice_enabled)
-                                    .on_click({
-                                        let settings_window = settings_window.clone();
-                                        move |checked, _, app| {
-                                            let checked = *checked;
-                                            settings_window.update(app, |view, _| {
-                                                view.settings.voice_auto_insert = checked;
-                                                view.persist();
-                                            })
-                                        }
-                                    }),
-                            ),
-                    )
+                Self::group("Input")
+                    .child(Self::row(
+                        "Push-to-Talk Key",
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .opacity(if voice_enabled { 1.0 } else { 0.5 })
+                            .child(key_name),
+                    ))
+                    .child(Self::row(
+                        "Auto-insert transcription",
+                        Switch::new("voice-auto-insert")
+                            .checked(voice_auto_insert)
+                            .disabled(!voice_enabled)
+                            .on_click({
+                                let settings_window = settings_window.clone();
+                                move |checked, _, app| {
+                                    let checked = *checked;
+                                    settings_window.update(app, |view, _| {
+                                        view.settings.voice_auto_insert = checked;
+                                        view.persist();
+                                    })
+                                }
+                            }),
+                    ))
                     .child(
                         div()
                             .text_sm()
@@ -1983,7 +1954,6 @@ impl SettingsWindow {
 
         v_flex()
             .gap_3()
-            .child(div().text_xl().child("MCP"))
             .child(
                 div()
                     .text_sm()
@@ -1994,85 +1964,71 @@ impl SettingsWindow {
                     ),
             )
             .child(
-                v_flex()
-                    .gap_2()
-                    .child(Self::section("Server Settings"))
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("Enable MCP server"))
-                            .child(
-                                Switch::new("mcp-server-enabled")
-                                    .checked(mcp_server_enabled)
-                                    .on_click({
-                                        let settings_window = settings_window.clone();
-                                        move |checked, _, app| {
-                                            let checked = *checked;
-                                            settings_window.update(app, |view, _| {
-                                                view.settings.mcp_server_enabled = checked;
-                                                view.persist();
-                                            })
-                                        }
-                                    }),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("Port"))
-                            .child(Input::new(&self.mcp_port_input).w(px(100.))),
-                    )
-                    .child(
-                        h_flex().justify_between().child(div().child("URL")).child(
-                            div()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(server_url.clone()),
-                        ),
-                    ),
+                Self::group("Server Settings")
+                    .child(Self::row(
+                        "Enable MCP server",
+                        Switch::new("mcp-server-enabled")
+                            .checked(mcp_server_enabled)
+                            .on_click({
+                                let settings_window = settings_window.clone();
+                                move |checked, _, app| {
+                                    let checked = *checked;
+                                    settings_window.update(app, |view, _| {
+                                        view.settings.mcp_server_enabled = checked;
+                                        view.persist();
+                                    })
+                                }
+                            }),
+                    ))
+                    .child(Self::row(
+                        "Port",
+                        Input::new(&self.mcp_port_input).w(px(100.)),
+                    ))
+                    .child(Self::row(
+                        "URL",
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(server_url.clone()),
+                    )),
             )
             .child(
-                v_flex()
-                    .gap_2()
-                    .child(Self::section("Installation Command"))
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(
-                                Button::new("mcp-agent-type-picker")
-                                    .label(agent_type_label)
-                                    .dropdown_menu({
-                                        let settings_window = settings_window.clone();
-                                        move |menu, _, _| {
-                                            let mut menu = menu;
-                                            for (label, value) in [
-                                                ("Claude", "claude"),
-                                                ("Codex", "codex"),
-                                                ("OpenCode", "opencode"),
-                                                ("Gemini", "gemini"),
-                                                ("Copilot", "copilot"),
-                                            ] {
-                                                menu = menu.item(
-                                                    PopupMenuItem::new(label).on_click({
-                                                        let settings_window =
-                                                            settings_window.clone();
-                                                        move |_, _, app| {
-                                                            settings_window.update(
-                                                                app,
-                                                                |view, cx| {
-                                                                    view.select_mcp_agent_type(
-                                                                        value, cx,
-                                                                    );
-                                                                },
-                                                            )
-                                                        }
-                                                    }),
-                                                );
+                Self::group("Installation Command")
+                    .child(Self::row(
+                        "Agent",
+                        Button::new("mcp-agent-type-picker")
+                            .label(agent_type_label)
+                            .dropdown_caret(true)
+                            .dropdown_menu({
+                                let settings_window = settings_window.clone();
+                                move |menu, _, _| {
+                                    let mut menu = menu;
+                                    for (label, value) in [
+                                        ("Claude", "claude"),
+                                        ("Codex", "codex"),
+                                        ("OpenCode", "opencode"),
+                                        ("Gemini", "gemini"),
+                                        ("Copilot", "copilot"),
+                                    ] {
+                                        menu = menu.item(PopupMenuItem::new(label).on_click({
+                                            let settings_window = settings_window.clone();
+                                            move |_, _, app| {
+                                                settings_window.update(app, |view, cx| {
+                                                    view.select_mcp_agent_type(value, cx);
+                                                })
                                             }
-                                            menu
-                                        }
-                                    }),
-                            )
+                                        }));
+                                    }
+                                    menu
+                                }
+                            }),
+                    ))
+                    .child(Self::row(
+                        "Command",
+                        h_flex()
+                            .flex_1()
+                            .gap_2()
+                            .items_center()
                             .child(
                                 div()
                                     .flex_1()
@@ -2084,19 +2040,21 @@ impl SettingsWindow {
                                     }),
                             )
                             .child(
-                                Button::new("mcp-copy-install-command")
-                                    .label("Copy")
-                                    .on_click({
-                                        move |_, _, app| {
-                                            if !install_command.is_empty() {
-                                                app.write_to_clipboard(ClipboardItem::new_string(
-                                                    install_command.clone(),
-                                                ));
-                                            }
-                                        }
-                                    }),
+                                Self::icon_button(
+                                    "mcp-copy-install-command",
+                                    "icons/copy.svg",
+                                    "Copy command",
+                                    false,
+                                )
+                                .on_click(move |_, _, app| {
+                                    if !install_command.is_empty() {
+                                        app.write_to_clipboard(ClipboardItem::new_string(
+                                            install_command.clone(),
+                                        ));
+                                    }
+                                }),
                             ),
-                    ),
+                    )),
             )
     }
 
@@ -2104,43 +2062,36 @@ impl SettingsWindow {
         let settings_window = cx.entity();
         let terminal_font_name = self.settings.terminal_font_name.clone();
 
-        v_flex()
-            .gap_3()
-            .child(div().text_xl().child("Terminal"))
-            .child(
-                v_flex()
-                    .gap_2()
-                    .child(Self::section("Font"))
-                    .child(
-                        h_flex().justify_between().child(div().child("Font")).child(
-                            Button::new("terminal-font-picker")
-                                .label(terminal_font_name.clone())
-                                .dropdown_menu({
-                                    let settings_window = settings_window.clone();
-                                    move |menu, _, _| {
-                                        let mut menu = menu;
-                                        for font in Self::TERMINAL_FONTS {
-                                            menu = menu.item(PopupMenuItem::new(font).on_click({
-                                                let settings_window = settings_window.clone();
-                                                move |_, _, app| {
-                                                    settings_window.update(app, |view, cx| {
-                                                        view.select_terminal_font(font, cx);
-                                                    })
-                                                }
-                                            }));
+        v_flex().gap_3().child(
+            Self::group("Font")
+                .child(Self::row(
+                    "Font",
+                    Button::new("terminal-font-picker")
+                        .label(terminal_font_name.clone())
+                        .dropdown_caret(true)
+                        .dropdown_menu({
+                            let settings_window = settings_window.clone();
+                            move |menu, _, _| {
+                                let mut menu = menu;
+                                for font in Self::TERMINAL_FONTS {
+                                    menu = menu.item(PopupMenuItem::new(font).on_click({
+                                        let settings_window = settings_window.clone();
+                                        move |_, _, app| {
+                                            settings_window.update(app, |view, cx| {
+                                                view.select_terminal_font(font, cx);
+                                            })
                                         }
-                                        menu
-                                    }
-                                }),
-                        ),
-                    )
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .child(div().child("Size"))
-                            .child(Input::new(&self.terminal_font_size_input).w(px(60.))),
-                    ),
-            )
+                                    }));
+                                }
+                                menu
+                            }
+                        }),
+                ))
+                .child(Self::row(
+                    "Size",
+                    Input::new(&self.terminal_font_size_input).w(px(60.)),
+                )),
+        )
     }
 }
 
