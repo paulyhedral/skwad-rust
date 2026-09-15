@@ -42,13 +42,18 @@ text)
 
 ## Impact
 
-- New crate or module owning the macOS notification center binding
-  (candidate: a small `skwad-notifications` crate, or a module inside
-  `skwad` if the surface stays this small — decided in design.md).
+- `skwad` binary only — no new crate. `gpui` (already linked via `gpui-kit`)
+  turns out to already wrap `UNUserNotificationCenter` behind a
+  platform-neutral `App::show_system_notification` /
+  `on_system_notification_response` / `dismiss_system_notification` API, so
+  this change is a few functions plus wiring inside `main.rs`, not a new
+  binding layer (see design.md - Decisions).
 - `skwad` binary: wire the existing `awaiting_input` queue (already produced
   by `skwad-activity`'s `Effect::AwaitingInput`) to also raise an OS
-  notification, alongside the existing in-window `AwaitingNotice` toast (kept
-  as-is).
+  notification via `cx.show_system_notification(...)`, alongside the
+  existing in-window `AwaitingNotice` toast (kept as-is), and register a
+  response callback once at startup to select the clicked notification's
+  agent.
 - `skwad_core::Settings.desktop_notifications_enabled`: gains its first
   reader.
 - No changes to `skwad-activity`, `skwad-agents`, or hook ingestion —

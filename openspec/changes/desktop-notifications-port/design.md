@@ -11,12 +11,26 @@ app gives no signal. `Settings.desktop_notifications_enabled`
 (`settings-persistence` spec) exists and is already decoded/persisted but has
 no reader anywhere in the Rust port yet.
 
+`gpui` (via `gpui-kit`, already the UI toolkit for this port) turns out to
+already wrap this exact feature: `App::show_system_notification`,
+`App::dismiss_system_notification`, and `App::on_system_notification_response`
+(`gpui`'s `platform.rs`/`app.rs`). Its macOS backend
+(`gpui-pre-macos::system_notifications`) is a full `UNUserNotificationCenter`
+implementation — lazy authorization (nothing touches the notification center
+until the first `show_system_notification` call, avoiding the
+not-in-a-bundle abort in dev builds), a retained delegate handling
+`willPresent`/`didReceive`, and category/action-button registration. This
+was discovered by inspecting the vendored source for
+`objc2-user-notifications` while implementing the originally-proposed direct
+binding, and changes the design below substantially from an earlier draft
+that proposed binding `UNUserNotificationCenter` directly via `objc2`.
+
 ## Goals / Non-Goals
 
 **Goals:**
-- Raise a real `UNUserNotificationCenter` notification on the same event the
-  in-window toast already reacts to, reusing its existing dedup signal where
-  possible instead of inventing a second one.
+- Raise a real OS notification on the same event the in-window toast already
+  reacts to, reusing its existing dedup signal where possible instead of
+  inventing a second one.
 - Click-to-navigate parity with the Swift reference.
 
 **Non-Goals:**
@@ -25,65 +39,63 @@ no reader anywhere in the Rust port yet.
   and this change doesn't touch it.
 - Any notification type beyond Awaiting-input (Swift's `NotificationService`
   itself only has the one call site: `notifyAwaitingInput`).
-- Linux/Windows notification backends — this port targets macOS only
-  (`CLAUDE.md`: "NEVER build or develop for Windows unless explicitly
-  instructed"; the workspace has no non-macOS target today).
+- A new crate, or any direct `objc2`/`UNUserNotificationCenter` binding —
+  `gpui::App` already exposes this as a platform-neutral capability; adding
+  either would duplicate code `gpui-kit` already ships and links.
 
 ## Decisions
 
-- **Bind `UNUserNotificationCenter` directly via `objc2` + `objc2-user-notifications`
-  (0.3.2), not a cross-platform notification crate.** Both crates are already
-  present in `Cargo.lock` at this exact version as a transitive dependency of
-  `gpui-pre-macos` (verified via `cargo tree -i objc2-user-notifications`), so
-  adding them as a direct dependency of the new module changes no resolved
-  version — zero new supply-chain surface, and it's the same framework the
-  Swift reference uses, keeping behavior (including permission-prompt wording
-  users have already seen from Skwad) identical. A cross-platform crate
-  (`notify-rust` et al.) would add a new dependency for a platform this port
-  doesn't target and typically uses the legacy `NSUserNotification` API on
-  macOS, which Apple deprecated in favor of `UserNotifications`.
+- **Use `gpui::App::show_system_notification` / `on_system_notification_response`
+  / `dismiss_system_notification` directly, not a new `skwad-notifications`
+  crate or a direct `objc2` binding.** `gpui-pre-macos`'s
+  `system_notifications` module is already a complete, lazily-initialized
+  `UNUserNotificationCenter` wrapper (delegate, authorization, category/action
+  registration) linked into every `skwad` build via `gpui-kit`. Reimplementing
+  any part of that — a custom `objc2` delegate class, a second authorization
+  request, a second permission-prompt UX — would be dead weight duplicating
+  code already in the dependency tree, and would risk two competing
+  `UNUserNotificationCenter` delegates on the same process-wide singleton
+  (`UNUserNotificationCenter.current()` has exactly one `delegate` slot; gpui
+  already claims it). This also makes the port more correct than a
+  macOS-only `objc2` binding would have been: `gpui::SystemNotification` is
+  cross-platform by construction, so this code needs no `#[cfg(target_os =
+  "macos")]` and keeps working if the port ever gains another target.
 
-- **New `skwad-notifications` crate, not a module inside `skwad`.** The
-  binding needs a delegate object (`UNUserNotificationCenterDelegate`
-  equivalent) that must be `'static` and independently testable for its pure
-  logic (dedup/suppression predicates), matching how `skwad-activity` and
-  `skwad-messaging` already split platform-adjacent logic out of `main.rs`.
-  The actual `objc2` calls are a thin, mostly-untestable shell around a
-  small set of pure functions that carry the real behavior — those functions
-  are what's unit tested, per this project's "no panics in library code, no
-  untested branches" convention.
+- **No new crate.** With the mechanism reduced to two `cx.app()` calls (show
+  on entering Awaiting input, and a response callback registered once at
+  startup) plus small pure suppression/body-text functions, there's nothing
+  here that warrants a crate boundary — it's a few functions alongside
+  `should_show_awaiting_notice`, `delivery_notice`, and the other pure
+  helpers `main.rs` already keeps next to its GPUI wiring.
 
 - **Reuse `should_show_awaiting_notice`'s suppression logic for the OS
   notification's visible-agent check, rather than a separate predicate.**
-  Both the in-window toast and the OS notification are suppressing on the
-  identical condition (agent not currently selected). The existing function
-  already lives in `main.rs`; the new wiring calls it before raising the OS
-  notification instead of duplicating its logic. The "already Awaiting
-  input" dedup is a separate, narrower condition (repeat hook events for an
-  agent already in that state) — checked against the live `AgentStore`
-  state, not the toast's own last-message cache, so it stays correct even if
-  the toast's dedup state is cleared or diverges for any reason.
+  Both the in-window toast and the OS notification suppress on the identical
+  condition (agent not currently selected). The new `should_notify` function
+  composes that existing check with the setting flag and the
+  already-Awaiting-input repeat-event check, rather than duplicating the
+  selection comparison.
 
-- **Delegate lives for the process lifetime, held via the same `Arc`-based
-  ownership pattern as `QueuedNotifier`.** `UNUserNotificationCenter.current()`
-  is a process-wide singleton on the Apple side; the Rust delegate just needs
-  to outlive it, which a static/leaked `Arc` (or GPUI's existing app-lifetime
-  entity ownership) already guarantees for other long-lived singletons in
-  this codebase.
+- **Tag each `SystemNotification` with the agent's id (as a string) and
+  match on that in the response callback**, rather than trying to smuggle
+  richer state through gpui's `tag: SharedString`. `SystemNotificationResponse`
+  only round-trips the tag and an optional `action_id`; the agent id is all
+  that's needed to look the agent up in the store and select it, and reusing
+  it as the tag also gives "posting a new notification with the same tag
+  replaces the previous one" (gpui's documented behavior) for free — a
+  second Awaiting-input notification for the same still-unanswered agent
+  replaces rather than stacks.
 
 ## Risks / Trade-offs
 
-- [`objc2-user-notifications`'s API surface could differ enough from the
-  Swift `UNUserNotificationCenter` calls this design assumes] → Mitigation:
-  confirm the exact method names/signatures against the crate's docs during
-  implementation (task 1 in tasks.md) before writing the delegate; the crate
-  is a near-1:1 binding of the same framework, so risk is low but not zero.
-- [Click-to-navigate requires routing an async delegate callback back into
-  GPUI's app/entity update cycle, which runs on GPUI's own executor, not an
-  arbitrary background thread] → Mitigation: follow the same
-  channel/queue-and-drain pattern already used for `awaiting_input` and
-  `notifier` (a plain `Mutex<Vec<_>>` drained each frame) rather than trying
-  to call into GPUI directly from the delegate callback.
-- [Notification permission may be denied by the user, silently dropping all
-  future notifications] → Mitigation: this is Apple's own UX, unchanged from
-  the Swift app; no in-app fallback is proposed, matching the reference.
+- [`gpui::App::show_system_notification` is a no-op on any platform/config
+  where delivery is unavailable (e.g. authorization denied, or a platform
+  gpui doesn't yet support) — silently, per its own doc comment] →
+  Mitigation: this matches the Swift reference's own behavior exactly (no
+  in-app fallback there either); no additional handling proposed.
+- [The response callback registered via `on_system_notification_response`
+  is process-global (one callback slot on `App`), so a later, unrelated
+  system-notification feature would need to compose with this one rather
+  than register its own] → Mitigation: not a concern for this change (the
+  only system notification `skwad` raises is this one), noted here so a
+  future addition doesn't silently clobber this callback.
