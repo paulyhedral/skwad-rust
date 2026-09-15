@@ -2035,10 +2035,29 @@ impl SettingsWindow {
                     ))
                     .child(Self::row(
                         "URL",
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(server_url.clone()),
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                Self::mono_text(cx, server_url.clone())
+                                    .text_color(cx.theme().muted_foreground),
+                            )
+                            .child(
+                                Self::icon_button(
+                                    "mcp-copy-url",
+                                    "icons/copy.svg",
+                                    "Copy URL",
+                                    false,
+                                )
+                                .on_click({
+                                    let server_url = server_url.clone();
+                                    move |_, _, app| {
+                                        app.write_to_clipboard(ClipboardItem::new_string(
+                                            server_url.clone(),
+                                        ));
+                                    }
+                                }),
+                            ),
                     )),
             )
             .child(
@@ -2079,9 +2098,20 @@ impl SettingsWindow {
                             .gap_2()
                             .items_center()
                             .child(if install_command.is_empty() {
-                                div().flex_1().text_sm().child("No manual setup needed.")
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_sm()
+                                    .child("No manual setup needed.")
+                                    .into_any_element()
                             } else {
-                                Self::mono_text(cx, install_command.clone()).flex_1()
+                                Self::mono_text(cx, install_command.clone())
+                                    .id("mcp-install-command-text")
+                                    .flex_1()
+                                    .min_w_0()
+                                    .whitespace_nowrap()
+                                    .overflow_x_scroll()
+                                    .into_any_element()
                             })
                             .child(
                                 Self::icon_button(
@@ -3820,7 +3850,11 @@ fn main() {
     );
 
     gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
+        // `Assets` only embeds gpui-component's own curated icon subset; our
+        // settings-window icon buttons (folder-open/pencil/trash/x/plus/copy)
+        // aren't in it, so `Icon::path(...)` silently resolved to nothing and
+        // rendered invisible. `AllAssets` embeds the complete Lucide catalog.
+        .with_assets(gpui_kit::assets::AllAssets)
         .run(move |cx| {
             gpui_kit::init(cx);
             Theme::change(cx.window_appearance(), None, cx);
