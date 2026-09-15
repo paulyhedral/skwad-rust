@@ -19,7 +19,7 @@ use gpui_kit::{
     InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement, PathPromptOptions,
     Render, StatefulInteractiveElement, Styled, Subscription, SystemMenuType, SystemNotification,
     SystemNotificationResponse, WeakEntity, Window, WindowBounds, WindowOptions, actions, div, px,
-    size,
+    rgb, size,
 };
 use knot_activity::EventSink;
 use knot_mcp::ToolCatalog;
@@ -31,6 +31,39 @@ const MAX_VISIBLE_LINES: usize = 200;
 const OUTPUT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const CHECK_INBOX_PROMPT: &str = "Check your inbox for questions or instructions from other agents. Update your status and immediately execute what is being asked without confirmation.";
 type AwaitingInputQueue = Arc<Mutex<Vec<(Uuid, Option<String>)>>>;
+
+/// Embedded UI font (SIL OFL licensed; see `assets/fonts/INTER-LICENSE.txt`),
+/// so the app looks the same regardless of what's installed on the system.
+const INTER_REGULAR: &[u8] = include_bytes!("../assets/fonts/Inter-Regular.ttf");
+const INTER_MEDIUM: &[u8] = include_bytes!("../assets/fonts/Inter-Medium.ttf");
+const INTER_SEMIBOLD: &[u8] = include_bytes!("../assets/fonts/Inter-SemiBold.ttf");
+const INTER_BOLD: &[u8] = include_bytes!("../assets/fonts/Inter-Bold.ttf");
+
+/// Registers the embedded Inter family and sets it as the UI font, plus a
+/// distinct accent color, so the app doesn't rely on the platform's generic
+/// UI font and neutral-gray default theme.
+fn apply_visual_identity(cx: &mut App) {
+    if let Err(error) = cx.text_system().add_fonts(vec![
+        std::borrow::Cow::Borrowed(INTER_REGULAR),
+        std::borrow::Cow::Borrowed(INTER_MEDIUM),
+        std::borrow::Cow::Borrowed(INTER_SEMIBOLD),
+        std::borrow::Cow::Borrowed(INTER_BOLD),
+    ]) {
+        eprintln!("failed to register Inter font: {error}");
+    }
+
+    let theme = cx.global_mut::<Theme>();
+    theme.font_family = "Inter".into();
+    let accent: gpui_kit::Hsla = rgb(0x3B82F6).into();
+    let accent_hover: gpui_kit::Hsla = rgb(0x2563EB).into();
+    let accent_active: gpui_kit::Hsla = rgb(0x1D4ED8).into();
+    theme.colors.primary = accent;
+    theme.colors.primary_hover = accent_hover;
+    theme.colors.primary_active = accent_active;
+    theme.colors.primary_foreground = gpui_kit::white();
+    theme.colors.ring = accent;
+    theme.colors.selection = accent.opacity(0.25);
+}
 
 /// Captured bytes streamed out of a live terminal session. Rendered lazily.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -3776,6 +3809,7 @@ fn main() {
         .run(move |cx| {
             gpui_kit::init(cx);
             Theme::change(cx.window_appearance(), None, cx);
+            apply_visual_identity(cx);
 
             cx.on_action(quit);
             cx.on_action(about_knot);
