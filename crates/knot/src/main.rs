@@ -1,7 +1,9 @@
 #![allow(dead_code)]
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -10,12 +12,14 @@ use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
+use gpui_kit::component::switch::Switch;
 use gpui_kit::component::*;
 use gpui_kit::{
-    App, AppContext, AsyncApp, ClickEvent, Context, Entity, InteractiveElement, IntoElement, Menu,
-    MenuItem, ParentElement, PathPromptOptions, Render, StatefulInteractiveElement, Styled,
-    Subscription, SystemMenuType, SystemNotification, SystemNotificationResponse, WeakEntity,
-    Window, WindowBounds, WindowOptions, actions, div, px, size,
+    AnyWindowHandle, App, AppContext, AsyncApp, ClickEvent, Context, Entity, InteractiveElement,
+    IntoElement, KeyBinding, Menu, MenuItem, ParentElement, PathPromptOptions, Render,
+    StatefulInteractiveElement, Styled, Subscription, SystemMenuType, SystemNotification,
+    SystemNotificationResponse, WeakEntity, Window, WindowBounds, WindowOptions, actions, div, px,
+    size,
 };
 use knot_activity::EventSink;
 use knot_mcp::ToolCatalog;
@@ -811,6 +815,227 @@ fn agent_window_options(cx: &App) -> WindowOptions {
         window_bounds: Some(WindowBounds::centered(size(px(520.), px(500.)), cx)),
         window_min_size: Some(size(px(460.), px(460.))),
         ..WindowOptions::default()
+    }
+}
+
+fn settings_window_options(cx: &App) -> WindowOptions {
+    WindowOptions {
+        window_bounds: Some(WindowBounds::centered(size(px(520.), px(460.)), cx)),
+        window_min_size: Some(size(px(460.), px(400.))),
+        ..WindowOptions::default()
+    }
+}
+
+/// Opens the settings window, or brings it forward if already open.
+fn open_settings_window(
+    handle: &Rc<RefCell<Option<AnyWindowHandle>>>,
+    settings: knot_core::Settings,
+    cx: &mut App,
+) {
+    if let Some(existing) = *handle.borrow()
+        && existing
+            .update(cx, |_, window, _| window.activate_window())
+            .is_ok()
+    {
+        return;
+    }
+    let options = settings_window_options(cx);
+    match cx.open_window(options, move |window, cx| {
+        let view = cx.new(|_| SettingsWindow { settings });
+        cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
+    }) {
+        Ok(window) => *handle.borrow_mut() = Some(window.into()),
+        Err(error) => eprintln!("failed to open settings window: {error}"),
+    }
+}
+
+struct SettingsWindow {
+    settings: knot_core::Settings,
+}
+
+impl SettingsWindow {
+    fn persist(&self) {
+        if let Err(error) = self.settings.persist() {
+            eprintln!("failed to persist settings: {error}");
+        }
+    }
+
+    fn section(title: &'static str) -> impl IntoElement {
+        div().text_sm().font_semibold().child(title)
+    }
+
+    fn appearance_label(mode: &str) -> &'static str {
+        match mode {
+            "system" => "System",
+            "light" => "Light",
+            "dark" => "Dark",
+            _ => "Auto",
+        }
+    }
+
+    /// "Restore last conversation" only takes effect when layout restore is
+    /// on; gate its toggle on that rather than hiding it.
+    fn restore_conversation_toggle_enabled(restore_layout_on_launch: bool) -> bool {
+        restore_layout_on_launch
+    }
+}
+
+impl Render for SettingsWindow {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let settings_window = cx.entity();
+        let restore_layout_on_launch = self.settings.restore_layout_on_launch;
+        let restore_conversation_on_launch = self.settings.restore_conversation_on_launch;
+        let keep_in_menu_bar = self.settings.keep_in_menu_bar;
+        let desktop_notifications_enabled = self.settings.desktop_notifications_enabled;
+        let appearance_label = Self::appearance_label(&self.settings.appearance_mode);
+
+        v_flex()
+            .size_full()
+            .gap_4()
+            .p_5()
+            .bg(cx.theme().background)
+            .child(div().text_xl().child("General"))
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(Self::section("Appearance"))
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("Appearance"))
+                            .child(
+                                Button::new("appearance-picker")
+                                    .label(appearance_label)
+                                    .dropdown_menu({
+                                        let settings_window = settings_window.clone();
+                                        move |menu, _, _| {
+                                            let mut menu = menu;
+                                            for (label, value) in [
+                                                ("Auto", "auto"),
+                                                ("System", "system"),
+                                                ("Light", "light"),
+                                                ("Dark", "dark"),
+                                            ] {
+                                                menu = menu.item(
+                                                    PopupMenuItem::new(label).on_click({
+                                                        let settings_window =
+                                                            settings_window.clone();
+                                                        move |_, _, app| {
+                                                            settings_window.update(
+                                                                app,
+                                                                |view, _| {
+                                                                    view.settings.appearance_mode =
+                                                                        value.to_string();
+                                                                    view.persist();
+                                                                },
+                                                            )
+                                                        }
+                                                    }),
+                                                );
+                                            }
+                                            menu
+                                        }
+                                    }),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("Derives color scheme from terminal background color."),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(Self::section("Startup"))
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("Restore agents on launch"))
+                            .child(
+                                Switch::new("restore-layout-on-launch")
+                                    .checked(restore_layout_on_launch)
+                                    .on_click({
+                                        let settings_window = settings_window.clone();
+                                        move |checked, _, app| {
+                                            let checked = *checked;
+                                            settings_window.update(app, |view, _| {
+                                                view.settings.restore_layout_on_launch = checked;
+                                                view.persist();
+                                            })
+                                        }
+                                    }),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("Restore last conversation"))
+                            .child(
+                                Switch::new("restore-conversation-on-launch")
+                                    .checked(restore_conversation_on_launch)
+                                    .disabled(!Self::restore_conversation_toggle_enabled(
+                                        restore_layout_on_launch,
+                                    ))
+                                    .on_click({
+                                        let settings_window = settings_window.clone();
+                                        move |checked, _, app| {
+                                            let checked = *checked;
+                                            settings_window.update(app, |view, _| {
+                                                view.settings.restore_conversation_on_launch =
+                                                    checked;
+                                                view.persist();
+                                            })
+                                        }
+                                    }),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("Keep running in menu bar when closed"))
+                            .child(
+                                Switch::new("keep-in-menu-bar")
+                                    .checked(keep_in_menu_bar)
+                                    .on_click({
+                                        let settings_window = settings_window.clone();
+                                        move |checked, _, app| {
+                                            let checked = *checked;
+                                            settings_window.update(app, |view, _| {
+                                                view.settings.keep_in_menu_bar = checked;
+                                                view.persist();
+                                            })
+                                        }
+                                    }),
+                            ),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap_2()
+                    .child(Self::section("Notifications"))
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(div().child("Desktop notifications"))
+                            .child(
+                                Switch::new("desktop-notifications-enabled")
+                                    .checked(desktop_notifications_enabled)
+                                    .on_click({
+                                        let settings_window = settings_window.clone();
+                                        move |checked, _, app| {
+                                            let checked = *checked;
+                                            settings_window.update(app, |view, _| {
+                                                view.settings.desktop_notifications_enabled =
+                                                    checked;
+                                                view.persist();
+                                            })
+                                        }
+                                    }),
+                            ),
+                    ),
+            )
     }
 }
 
@@ -2242,7 +2467,14 @@ fn start_mcp_server(
 
 actions!(
     knot_app,
-    [Quit, HideApp, HideOthers, ShowAllWindows, AboutKnot]
+    [
+        Quit,
+        HideApp,
+        HideOthers,
+        ShowAllWindows,
+        AboutKnot,
+        OpenSettings
+    ]
 );
 
 fn quit(_: &Quit, cx: &mut App) {
@@ -2279,6 +2511,8 @@ fn set_app_menus(cx: &mut App) {
         Menu::new("Knot").items([
             MenuItem::action("About Knot", AboutKnot),
             MenuItem::separator(),
+            MenuItem::action("Settings…", OpenSettings),
+            MenuItem::separator(),
             MenuItem::os_submenu("Services", SystemMenuType::Services),
             MenuItem::separator(),
             MenuItem::action("Hide Knot", HideApp),
@@ -2306,8 +2540,7 @@ fn set_app_menus(cx: &mut App) {
             MenuItem::action("Minimize", gpui_kit::NoAction).disabled(true),
             MenuItem::action("Zoom", gpui_kit::NoAction).disabled(true),
         ]),
-        Menu::new("Help")
-            .items([MenuItem::action("Knot Help", gpui_kit::NoAction).disabled(true)]),
+        Menu::new("Help").items([MenuItem::action("Knot Help", gpui_kit::NoAction).disabled(true)]),
     ]);
 }
 
@@ -2342,6 +2575,15 @@ fn main() {
             cx.on_action(hide_app);
             cx.on_action(hide_others);
             cx.on_action(show_all_windows);
+            cx.bind_keys([KeyBinding::new("cmd-,", OpenSettings, None)]);
+            let settings_window: Rc<RefCell<Option<AnyWindowHandle>>> = Rc::new(RefCell::new(None));
+            {
+                let settings_window = Rc::clone(&settings_window);
+                let settings = settings.clone();
+                cx.on_action(move |_: &OpenSettings, cx| {
+                    open_settings_window(&settings_window, settings.clone(), cx);
+                });
+            }
             set_app_menus(cx);
 
             cx.on_system_notification_response(|response, cx| {
@@ -2863,8 +3105,7 @@ mod tests {
 
         let mut saved = store.saved_workspaces()[0].clone();
         saved.active_agent_ids = vec![Uuid::new_v4(), second];
-        let restored =
-            knot_agents::AgentStore::from_saved(&store.saved_agents(false), vec![saved]);
+        let restored = knot_agents::AgentStore::from_saved(&store.saved_agents(false), vec![saved]);
 
         assert_eq!(initial_agent_selection(&restored), Some(second));
         assert_ne!(initial_agent_selection(&restored), Some(first));
@@ -2905,5 +3146,32 @@ mod tests {
             action_id: None,
         };
         assert_eq!(notification_response_agent_id(&response), None);
+    }
+
+    #[test]
+    fn appearance_label_maps_known_modes() {
+        assert_eq!(SettingsWindow::appearance_label("system"), "System");
+        assert_eq!(SettingsWindow::appearance_label("light"), "Light");
+        assert_eq!(SettingsWindow::appearance_label("dark"), "Dark");
+    }
+
+    #[test]
+    fn appearance_label_defaults_to_auto() {
+        assert_eq!(SettingsWindow::appearance_label("auto"), "Auto");
+        assert_eq!(SettingsWindow::appearance_label("anything-else"), "Auto");
+    }
+
+    #[test]
+    fn restore_conversation_toggle_enabled_only_with_layout_restore() {
+        assert!(SettingsWindow::restore_conversation_toggle_enabled(true));
+        assert!(!SettingsWindow::restore_conversation_toggle_enabled(false));
+    }
+
+    #[test]
+    fn turning_off_layout_restore_does_not_touch_conversation_restore() {
+        let mut settings = knot_core::Settings::default();
+        settings.restore_conversation_on_launch = true;
+        settings.restore_layout_on_launch = false;
+        assert!(settings.restore_conversation_on_launch);
     }
 }

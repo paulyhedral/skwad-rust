@@ -36,9 +36,12 @@ control this pane needs; no new dependency is required.
   state, since only General exists yet. When later panes are added, this
   view becomes the first tab's content; no rework of the persistence
   wiring is needed.
-- **`Switch` for booleans, `Select` for appearance mode** — matches the
-  Swift reference 1:1 (`Toggle` → `Switch`, `Picker` → `Select`) and both
-  already exist in `gpui-component`, so no custom widget is written.
+- **`Switch` for booleans, the existing `Button::dropdown_menu` picker
+  pattern for appearance mode** — matches the Swift reference 1:1
+  (`Toggle` → `Switch`, `Picker` → dropdown). `dropdown_menu` is already
+  used throughout `main.rs` for every other picker (avatar, agent type,
+  persona); reusing it keeps one picker idiom in the file instead of
+  introducing `gpui-component`'s `Select` for a single use.
 - **Direct mutation over an event/message bus** — `Settings` is already
   shared as an `Rc`/`Arc`-wrapped model read elsewhere in `main.rs`, and
   every existing settings mutation in the codebase is a direct field-set +
